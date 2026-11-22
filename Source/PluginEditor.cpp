@@ -1,0 +1,53 @@
+#include "PluginEditor.h"
+ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), processor(p)
+{
+    setSize(820, 390);
+    const char* knobs[] = {"rate","depth","mix","width","tone","drive","level"};
+    const char* titles[] = {"RATE","DEPTH","MIX","WIDTH","TONE","DRIVE","LEVEL"};
+    for (int i = 0; i < 7; ++i)
+    {
+        auto s = std::make_unique<juce::Slider>();
+        s->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        s->setTextBoxStyle(juce::Slider::TextBoxBelow,false,90,20);
+        s->setColour(juce::Slider::rotarySliderFillColourId,juce::Colour(0xffd8aa65));
+        addAndMakeVisible(*s);
+        sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,knobs[i],*s));
+        sliders.push_back(std::move(s));
+        auto l=std::make_unique<juce::Label>(); l->setText(titles[i],juce::dontSendNotification);
+        l->setJustificationType(juce::Justification::centred); addAndMakeVisible(*l); labels.push_back(std::move(l));
+    }
+    const char* ids[]={"model","quality"};
+    const juce::StringArray choices[]={
+        {"CE-2 BBD","CE-1 BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","Midiverb II Symphonic"},
+        {"Normal","High (2x modulation update)"}
+    };
+    for(int i=0;i<2;++i)
+    {
+        auto c=std::make_unique<juce::ComboBox>();
+        c->addItemList(choices[i],1); addAndMakeVisible(*c);
+        comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.parameters,ids[i],*c));
+        combos.push_back(std::move(c));
+    }
+}
+void ChorusEditor::paint(juce::Graphics& g)
+{
+    g.fillAll(juce::Colour(0xff151b20));
+    g.setColour(juce::Colour(0xffe3c18a)); g.setFont(28.0f);
+    g.drawText("ANALOG CHORUS COLLECTION",25,20,getWidth()-50,42,juce::Justification::centred);
+    g.setColour(juce::Colours::lightgrey); g.setFont(14.0f);
+    g.drawText("Six independently voiced modulation architectures",25,66,getWidth()-50,24,juce::Justification::centred);
+    g.drawText("MODEL",55,110,130,22,juce::Justification::centred);
+    g.drawText("QUALITY",540,110,180,22,juce::Justification::centred);
+    g.setColour(juce::Colour(0xff75818c));
+    g.drawText("Original DSP approximations; not factory-preset or measured hardware clones",20,352,getWidth()-40,22,juce::Justification::centred);
+}
+void ChorusEditor::resized()
+{
+    combos[0]->setBounds(195,110,325,28); combos[1]->setBounds(585,140,175,28);
+    for(int i=0;i<7;++i)
+    {
+        const int x=30+i*110;
+        labels[(size_t)i]->setBounds(x,205,100,24);
+        sliders[(size_t)i]->setBounds(x,232,100,105);
+    }
+}
