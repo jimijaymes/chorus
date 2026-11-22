@@ -23,6 +23,7 @@ void ChorusProcessor::Voice::reset(int size)
 float ChorusProcessor::Voice::read(float delaySamples) const
 {
     const int n=(int)delay.size();
+    if(n<4 || !std::isfinite(delaySamples)) return 0.0f;
     const float p=(float)write-clampf(delaySamples,1.0f,(float)n-3.0f);
     const int i=(int)std::floor(p); const float frac=p-(float)i;
     const auto at=[&](int index) {index%=n; if(index<0) index+=n; return delay[(size_t)index];};
@@ -33,7 +34,8 @@ float ChorusProcessor::Voice::read(float delaySamples) const
 }
 void ChorusProcessor::Voice::push(float x)
 {
-    delay[(size_t)write]=x; write=(write+1)%(int)delay.size();
+    if(delay.empty()) return;
+    delay[(size_t)write]=std::isfinite(x)?x:0.0f; write=(write+1)%(int)delay.size();
 }
 juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayout()
 {
@@ -67,8 +69,9 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
 {
     juce::ScopedNoDenormals noDenormals;
     const int channels=juce::jmin(buffer.getNumChannels(),2);
+    if(channels<=0 || voices[0][0].delay.empty()) return;
     const int model=juce::jlimit(0,5,(int)*parameters.getRawParameterValue("model"));
-    const float rate=*parameters.getRawParameterValue("rate");
+    const float rate=parameters.getRawParameterValue("rate")->load();
     const float depth=*parameters.getRawParameterValue("depth");
     const float mix=*parameters.getRawParameterValue("mix");
     const float width=*parameters.getRawParameterValue("width");
