@@ -1,7 +1,6 @@
 #include "PluginEditor.h"
 ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), processor(p)
 {
-    setSize(820, 390);
     const char* knobs[] = {"rate","depth","mix","width","tone","drive","level"};
     const char* titles[] = {"RATE","DEPTH","MIX","WIDTH","TONE","DRIVE","LEVEL"};
     for (int i = 0; i < 7; ++i)
@@ -28,6 +27,7 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
         comboAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(p.parameters,ids[i],*c));
         combos.push_back(std::move(c));
     }
+    setSize(820, 390);
 }
 void ChorusEditor::paint(juce::Graphics& g)
 {
