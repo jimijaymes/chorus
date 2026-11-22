@@ -14,7 +14,7 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
         sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,knobs[i],*s));
         sliders.push_back(std::move(s));
         auto l=std::make_unique<juce::Label>(); l->setText(titles[i],juce::dontSendNotification);
-        l->setJustificationType(juce::Justification::centred); addAndMakeVisible(*l); labels.push_back(std::move(l));
+        l->setJustificationType(juce::Justification::centred); l->setMinimumHorizontalScale(0.68f); addAndMakeVisible(*l); labels.push_back(std::move(l));
     }
     const char* ids[]={"model","quality"};
     const juce::StringArray choices[]={
