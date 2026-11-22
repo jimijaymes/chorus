@@ -74,7 +74,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const float width=*parameters.getRawParameterValue("width");
     const float tone=*parameters.getRawParameterValue("tone");
     const float drive=*parameters.getRawParameterValue("drive");
-    const float gain=juce::Decibels::decibelsToGain(*parameters.getRawParameterValue("level"));
+    const float gain=juce::Decibels::decibelsToGain(parameters.getRawParameterValue("level")->load());
     const int quality=(int)*parameters.getRawParameterValue("quality");
     const int voicesUsed=model==3?3:(model==5?6:(model==2?2:1));
     const float baseMs[]={7.2f,5.4f,7.5f,11.0f,18.0f,21.0f};
