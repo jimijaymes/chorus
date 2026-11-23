@@ -53,15 +53,27 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
     addAndMakeVisible(*delay);
     sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,"dmmDelay",*delay));
     sliders.push_back(std::move(delay));
+    auto shortDelay=std::make_unique<juce::Slider>();
+    shortDelay->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    shortDelay->setTextBoxStyle(juce::Slider::TextBoxBelow,false,90,20);
+    shortDelay->textFromValueFunction=[](double v){return juce::String(v,1)+" ms";};
+    addAndMakeVisible(*shortDelay);
+    sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,"dmmShortDelay",*shortDelay));
+    sliders.push_back(std::move(shortDelay));
+    auto shortLabel=std::make_unique<juce::Label>();
+    shortLabel->setText("SHORT TIME",juce::dontSendNotification);
+    shortLabel->setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(*shortLabel);
+    labels.push_back(std::move(shortLabel));
     auto delayLabel=std::make_unique<juce::Label>();
     delayLabel->setText("DELAY TIME",juce::dontSendNotification);
     delayLabel->setJustificationType(juce::Justification::centred);
     addAndMakeVisible(*delayLabel);
     labels.push_back(std::move(delayLabel));
     setSize(900, 520);
-    p.parameters.addParameterListener("model",this); updateModelControls();
+    p.parameters.addParameterListener("model",this); p.parameters.addParameterListener("dmmEngine",this); updateModelControls();
 }
-ChorusEditor::~ChorusEditor(){processor.parameters.removeParameterListener("model",this);}
+ChorusEditor::~ChorusEditor(){processor.parameters.removeParameterListener("model",this);processor.parameters.removeParameterListener("dmmEngine",this);}
 void ChorusEditor::parameterChanged(const juce::String&,float){juce::MessageManager::callAsync([safe=juce::Component::SafePointer<ChorusEditor>(this)](){if(safe!=nullptr)safe->updateModelControls();});}
 void ChorusEditor::updateModelControls(){
     const int m=juce::jlimit(0,7,(int)processor.parameters.getRawParameterValue("model")->load());
@@ -79,7 +91,9 @@ void ChorusEditor::updateModelControls(){
     combos[5]->setVisible(m==7);
     combos[6]->setVisible(m==1);
     sliders[7]->setVisible(m==1);labels[7]->setVisible(m==1);
-    sliders[8]->setVisible(m==1);labels[8]->setVisible(m==1);
+    const bool shortEngine=processor.parameters.getRawParameterValue("dmmEngine")->load()<0.5f;
+    sliders[8]->setVisible(m==1&&!shortEngine);labels[8]->setVisible(m==1&&!shortEngine);
+    sliders[9]->setVisible(m==1&&shortEngine);labels[9]->setVisible(m==1&&shortEngine);
     resized();
 }
 void ChorusEditor::paint(juce::Graphics& g)
@@ -106,6 +120,8 @@ void ChorusEditor::resized()
     sliders[7]->setBounds(55,385,130,105);
     labels[8]->setBounds(205,360,130,24);
     sliders[8]->setBounds(205,385,130,105);
+    labels[9]->setBounds(205,360,130,24);
+    sliders[9]->setBounds(205,385,130,105);
     for(int i=0;i<7;++i)
     {
         const int x=30+i*110;
