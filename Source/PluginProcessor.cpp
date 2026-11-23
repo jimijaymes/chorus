@@ -142,9 +142,9 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float dmmSweep=2.2f*depth; // Provisional maximum excursion; not measured from hardware. // LFO controls clock frequency; short mode uses a reduced-stage BBD.
                 const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
                 const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
-                const float junoSweep=junoMode==2?0.32f:1.1f;
+                const float junoSweep=junoMode==2?0.2f:1.845f; // measured half-range
                 const float dMs=model==1?(dmmShort?dmmBase/(1.f+juce::jlimit(-0.32f,0.32f,(dmmSweep/juce::jmax(6.f,dmmBase))*lfo)):dmmBase+dmmSweep*lfo)
-                    :(model==7?baseMs[7]+junoSweep*lfo
+                    :(model==7?(junoMode==2?3.5f:3.505f)+junoSweep*lfo
                     :baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter));
                 const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
                 float input=dry;
