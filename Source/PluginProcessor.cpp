@@ -48,7 +48,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
     l.add(std::make_unique<C>(juce::ParameterID{"monoStereo",1},"Mono Chorus Output",juce::StringArray{"Original Mono","Stereo (Opposite LFO)"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"junoMode",1},"Juno Chorus",juce::StringArray{"I","II","I+II"},0));
-    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(50.f,550.f,1.f,0.7f),300.f));
+    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(8.f,35.f,0.1f),18.f));
     l.add(std::make_unique<C>(juce::ParameterID{"dmmMode",1},"DMM Modulation",juce::StringArray{"Chorus","Vibrato"},0));
     l.add(std::make_unique<F>(juce::ParameterID{"dmmFeedback",1},"DMM Feedback",juce::NormalisableRange<float>(0.f,0.92f,0.01f),0.0f));
     l.add(std::make_unique<C>(juce::ParameterID{"quality",1},"Quality",juce::StringArray{"Normal","High"},0));
@@ -252,7 +252,10 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 wet+=delayed*weight;
                 // High-quality mode updates phase twice per sample (same net rate) for LFO numerical consistency.
                 const double modeRate=model>=4?(mode==0?0.78:(mode==1?1.0:1.25)):1.0;
-                // Original DMM switch changes oscillator timing, not its waveform or depth.\n                // Nominal rates are engineering approximations pending measurement.\n                const double dmmLfoHz=dmmVibrato?3.6:0.65;\n                const double step=(model==1?dmmLfoHz:(model==7?junoRate:(double)(effectiveRate*rates[model]*modeRate)))/fs;
+                // Original DMM switch changes oscillator timing, not its waveform or depth.\n                // Nominal rates are engineering approximations pending measurement.\n                // The original switch changes oscillator timing; Rate provides a
+                // user-adjustable trim around the chorus/vibrato ranges.
+                const double dmmLfoHz=(dmmVibrato?2.0:0.35)
+                    *juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.5,2.0);\n                const double step=(model==1?dmmLfoHz:(model==7?junoRate:(double)(effectiveRate*rates[model]*modeRate)))/fs;
                 if(quality!=0) {s.phase+=step*0.5; s.phase-=std::floor(s.phase); s.phase+=step*0.5;}
                 else s.phase+=step;
                 s.phase-=std::floor(s.phase);
