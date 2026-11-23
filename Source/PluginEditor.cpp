@@ -15,13 +15,14 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
         auto l=std::make_unique<juce::Label>(); l->setText(titles[i],juce::dontSendNotification);
         l->setJustificationType(juce::Justification::centred); l->setMinimumHorizontalScale(0.68f); addAndMakeVisible(*l); labels.push_back(std::move(l));
     }
-    const char* ids[]={"model","quality","mode"};
+    const char* ids[]={"model","quality","mode","monoStereo"};
     const juce::StringArray choices[]={
         {"CE-2 BBD","CE-1 BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX Symphonic"},
         {"Normal","High (2x modulation update)"},
-        {"Mode 1","Mode 2","Mode 3","Mode 4"}
+        {"Mode 1","Mode 2","Mode 3","Mode 4"},
+        {"Original Mono","Stereo (Opposite LFO)"}
     };
-    for(int i=0;i<3;++i)
+    for(int i=0;i<4;++i)
     {
         auto c=std::make_unique<juce::ComboBox>();
         c->addItemList(choices[i],1); addAndMakeVisible(*c);
@@ -44,6 +45,7 @@ void ChorusEditor::updateModelControls(){
     sliders[4]->setVisible(false);labels[4]->setVisible(false);
     sliders[5]->setVisible(false);labels[5]->setVisible(false);
     combos[2]->setVisible(dimension||digital);
+    combos[3]->setVisible(m<=1);
     resized();
 }
 void ChorusEditor::paint(juce::Graphics& g)
@@ -62,6 +64,7 @@ void ChorusEditor::resized()
 {
     combos[0]->setBounds(195,110,325,28); combos[1]->setBounds(585,140,175,28);
     combos[2]->setBounds(195,150,325,28);
+    combos[3]->setBounds(195,150,325,28);
     for(int i=0;i<7;++i)
     {
         const int x=30+i*110;
