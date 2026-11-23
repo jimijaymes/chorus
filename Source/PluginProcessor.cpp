@@ -118,7 +118,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // optional stereo puts the right channel 180 degrees out of phase.
                 const double stereoOffset=(model<=1)
                     ? ((stereoMonoChorus && ch==1)?0.5:0.0)
-                    : (model==7?(ch==1?0.5:0.0):((ch==1)?width*(model==2?0.5:0.25):0.0));
+                    : (model==7?(junoMode==2?0.0:(ch==1?0.5:0.0)):((ch==1)?width*(model==2?0.5:0.25):0.0));
                 // Separate phase accumulators per voice/channel allow independent architecture and stable stereo offsets.
                 const double phase=s.phase+phaseOffset+stereoOffset;
                 const float sine=(float)std::sin(2.0*pi*phase);
@@ -130,7 +130,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float dimensionDepth[]={0.32f,0.48f,0.62f,0.76f};
                 const float modeDepth[]={0.55f,0.78f,1.0f,1.0f};
                 const float effectiveDepth=model==2?dimensionDepth[mode]:(model>=4&&model<=6?modeDepth[juce::jmin(mode,2)]:depth);
-                const float effectiveRate=model==2?(0.45f+0.11f*(float)mode):rate;
+                const float effectiveRate=rate;
                 // The three digital mode banks select different tap arrangements.
                 const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?4.f:9.f))
                     :(model==5?(mode==0?0.f:(mode==1?3.f:6.f))
@@ -270,7 +270,8 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const double dmmLfoHz=(dmmVibrato?2.0:0.35)
                     *juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.5,2.0);
                 const double ce2Rate=juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.3,3.5);
-                const double step=(model==0?ce2Rate:(model==1?dmmLfoHz:(model==7?junoRate:(double)(effectiveRate*rates[model]*modeRate))))/fs;
+                const double dimensionRate=mode<2?0.25:0.5; // SDD-320 service notes: 4 s / 2 s modulation periods.
+                const double step=(model==0?ce2Rate:(model==1?dmmLfoHz:(model==2?dimensionRate:(model==7?junoRate:(double)(effectiveRate*rates[model]*modeRate)))))/fs;
                 if(quality!=0) {s.phase+=step*0.5; s.phase-=std::floor(s.phase); s.phase+=step*0.5;}
                 else s.phase+=step;
                 s.phase-=std::floor(s.phase);
