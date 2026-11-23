@@ -37,6 +37,7 @@ private:
         double phase = 0.0;
         float dc = 0.0f, dcIn = 0.0f, tone = 0.0f, comp = 0.0f, pre = 0.0f;
         float preDcIn=0,preDc=0,env=0,antiAlias=0,deEmphasis=0,adcLow=0,dacLow=0;
+        float feedbackSample=0,feedbackLow=0;
         uint32_t rng=0x91e10da5u;
         float read(float delaySamples) const;
         void push(float sample);
