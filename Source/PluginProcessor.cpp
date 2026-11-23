@@ -148,13 +148,17 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
                 const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
                 const float junoSweep=junoMode==2?0.2f:1.845f; // measured half-range
+                // BF-2 service notes: 1-13 ms. The optional extended mode doubles the entire range.
+                // Electric Mistress reference circuit: roughly 0.9-7.8 ms full sweep.
+                // Polychorus modes: Filter Matrix, Flange, Chorus, Double Track.
                 const float flangerBase=model==8?(1.f+12.f*flangeManual)*(mode==1?2.f:1.f)
-                    :(model==9?1.f+6.4f*flangeManual:(mode==2?12.f+45.f*flangeManual:(mode==3?2.f+12.f*flangeManual:0.8f+9.f*flangeManual)));
-                const bool staticFlange=(model==9&&mode==1)||(model==10&&(mode==1||mode==2));
+                    :(model==9?0.9f+6.9f*flangeManual
+                    :(mode==2?12.f+45.f*flangeManual:(mode==3?2.f+12.f*flangeManual:0.8f+9.f*flangeManual)));
+                const bool staticFlange=(model==9&&mode==1)||(model==10&&(mode==0||mode==3));
                 const float flangeDepth=model==8?juce::jmin(flangerBase-0.5f,5.8f)*depth
-                    :(model==9?juce::jmin(flangerBase-0.5f,3.2f)*depth
-                    :juce::jmin(flangerBase-0.5f,model==10&&mode==3?5.f:4.f)*depth);
-                const float flangerDelay=juce::jmax(0.5f,flangerBase+(staticFlange?0.f:flangeDepth*triangle));
+                    :(model==9?juce::jmin(flangerBase-0.85f,3.45f)*depth
+                    :juce::jmin(flangerBase-0.5f,mode==2?6.f:4.f)*depth);
+                const float flangerDelay=juce::jmax(model==9?0.85f:0.5f,flangerBase+(staticFlange?0.f:flangeDepth*triangle));
                 const float dMs=flanger?flangerDelay:(model==1?(dmmShort?dmmBase/(1.f+juce::jlimit(-0.32f,0.32f,(dmmSweep/juce::jmax(6.f,dmmBase))*lfo)):dmmBase+dmmSweep*lfo)
                     :(model==7?(junoMode==2?3.5f:3.505f)+junoSweep*lfo
                     :baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter)));
@@ -206,7 +210,18 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // DMM feedback is injected at the BBD input, through its own
                 // filtered, bounded analogue loop. Other models remain feed-forward.
                 if(model==1) input=std::tanh(input+dmmFeedback*s.feedbackSample);
-                if(flanger) input=std::tanh(input+flangeFeedback*s.feedbackSample);
+                if(flanger)
+                {
+                    // Resonance/Color acts in the feedback loop, before the delay.
+                    // Prevent runaway with bounded feedback while preserving polarity.
+                    input=std::tanh(input+flangeFeedback*s.feedbackSample);
+                    if(model==9)
+                    {
+                        // SAD1024-era Mistress treble pre-emphasis.
+                        const float low=onePole(input,s.pre,1500.f,fs);
+                        input=low+1.7f*(input-low);
+                    }
+                }
                 float delayed=0.f;
                 if(model<=2||model==7)
                 {
@@ -269,7 +284,11 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     delayed=s.read(delaySamples);
                 }
                 if(model==1) s.feedbackSample=onePole(delayed,s.feedbackLow,3600.f,fs);
-                if(flanger) s.feedbackSample=onePole(delayed,s.feedbackLow,model==8?4400.f:5200.f,fs);
+                if(flanger)
+                {
+                    const float fbCutoff=model==8?4400.f:(model==9?5000.f:5200.f);
+                    s.feedbackSample=onePole(delayed,s.feedbackLow,fbCutoff,fs);
+                }
                 if(model<=2||model==7)
                 {
                     delayed=onePole(delayed,s.tone,bandwidth[model],fs);
@@ -287,7 +306,11 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     delayed=onePole(delayed,s.tone,bandwidth[model],fs);
                     delayed=highpass(delayed,s.dcIn,s.dc,midiverb?95.f:24.f,fs);
                 }
-                else delayed=onePole(delayed,s.tone,flanger?(model==8?5500.f:6500.f):bandwidth[model],fs);
+                else
+                {
+                    delayed=onePole(delayed,s.tone,flanger?(model==8?5500.f:6500.f):bandwidth[model],fs);
+                    if(model==9) delayed=onePole(delayed,s.deEmphasis,9000.f,fs);
+                }
                 // Different digital architectures: Midiverb uses two complementary
                 // moving taps; SPX90 and SPX990 use multiple decorrelated
                 // taps with different weighting and modulation distributions.
