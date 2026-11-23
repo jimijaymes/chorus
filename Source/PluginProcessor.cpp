@@ -42,6 +42,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
     juce::AudioProcessorValueTreeState::ParameterLayout l;
     using F=juce::AudioParameterFloat; using C=juce::AudioParameterChoice;
     l.add(std::make_unique<C>(juce::ParameterID{"model",1},"Model",juce::StringArray{"CE-2 BBD","CE-1 BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX Symphonic"},0));
+    l.add(std::make_unique<C>(juce::ParameterID{"monoStereo",1},"Mono Chorus Output",juce::StringArray{"Original Mono","Stereo (Opposite LFO)"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"quality",1},"Quality",juce::StringArray{"Normal","High"},0));
     l.add(std::make_unique<F>(juce::ParameterID{"rate",1},"Rate",juce::NormalisableRange<float>(0.05f,6.0f,0.001f,0.4f),0.8f));
@@ -81,6 +82,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const float gain=juce::Decibels::decibelsToGain(parameters.getRawParameterValue("level")->load());
     const int quality=(int)*parameters.getRawParameterValue("quality");
     const int mode=juce::jlimit(0,3,(int)*parameters.getRawParameterValue("mode"));
+    const bool stereoMonoChorus=parameters.getRawParameterValue("monoStereo")->load()>.5f;
     const int voicesUsed=model==3?3:(model==5?6:(model==2?4:(model==4?2:1)));
     const float baseMs[]={7.2f,5.4f,8.0f,11.0f,18.0f,21.0f};
     const float sweepMs[]={0.85f,1.5f,0.65f,3.5f,3.0f,4.0f};
@@ -96,7 +98,11 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
             {
                 auto& s=voices[(size_t)ch][(size_t)v];
                 const double phaseOffset=(model==3||model==5||model==2)?(double)v/(double)voicesUsed:(model==4&&v==1?0.5:0.0);
-                const double stereoOffset=(ch==1)?width*(model==2?0.5:0.25):0.0;
+                // CE-1/CE-2: original mono uses the same LFO on both channels;
+                // optional stereo puts the right channel 180 degrees out of phase.
+                const double stereoOffset=(model<=1)
+                    ? ((stereoMonoChorus && ch==1)?0.5:0.0)
+                    : ((ch==1)?width*(model==2?0.5:0.25):0.0);
                 // Separate phase accumulators per voice/channel allow independent architecture and stable stereo offsets.
                 const double phase=s.phase+phaseOffset+stereoOffset;
                 const float sine=(float)std::sin(2.0*pi*phase);
