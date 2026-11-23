@@ -111,7 +111,8 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const double phase=s.phase+phaseOffset+stereoOffset;
                 const float sine=(float)std::sin(2.0*pi*phase);
                 const float triangle=(float)(2.0/pi*std::asin(std::sin(2.0*pi*phase)));
-                const float lfo=(model==0)?triangle:(model==1?0.8f*sine+0.2f*triangle:((model==2)?(0.75f*sine+0.25f*triangle):sine));
+                // DMM chorus: triangle clock modulation; vibrato: rounded sine.
+                const float lfo=model==0?triangle:(model==1?(dmmVibrato?sine:triangle):(model==2?(0.75f*sine+0.25f*triangle):sine));
                 const float jitter=(model>=4)?0.035f*std::sin((float)(phase*2.0*pi*7.13)):0.0f;
                 // Dimension modes select fixed modulation patterns, not a user sweep.
                 const float dimensionDepth[]={0.32f,0.48f,0.62f,0.76f};
@@ -119,12 +120,15 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float effectiveDepth=model==2?dimensionDepth[mode]:(model>=4?modeDepth[juce::jmin(mode,2)]:depth);
                 const float effectiveRate=model==2?(0.45f+0.11f*(float)mode):(model==0?juce::jlimit(0.25f,1.8f,rate):rate);
                 // The three digital mode banks select different tap arrangements.
-                const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?4.f:9.f)):(model>=5?(mode==0?0.0f:(mode==1?3.f:6.f)):0.f);
+                const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?4.f:9.f))
+                    :(model==5?(mode==0?0.f:(mode==1?3.f:6.f))
+                    :(model==6?(mode==0?1.f:(mode==1?4.5f:7.5f)):0.f));
                 const float dmmBase=juce::jmap(depth,0.f,1.f,145.f,460.f);
                 const float dmmSweep=dmmVibrato?5.5f:2.2f;
+                const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
                 const float dMs=model==1
                     ? dmmBase+dmmSweep*lfo
-                    : baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(lfo+jitter);
+                    : baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter);
                 const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
                 float input=dry;
                 // Independent analogue front-ends: CE-2 BBD, DMM preamp/BBD,
