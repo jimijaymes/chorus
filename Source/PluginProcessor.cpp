@@ -20,7 +20,7 @@ void ChorusProcessor::Voice::reset(int size)
 {
     delay.assign((size_t)size,0.0f);
     bbd.assign(4096,0.0f);
-    bbdWrite=0; clockPhase=0.0; heldBbd=previousBbd=bbdCharge=0.0f;
+    bbdWrite=0; clockPhase=0.0; digitalPhase=0.0; digitalHeld=0.0f; heldBbd=previousBbd=bbdCharge=0.0f;
     write=0; phase=0.0; dc=dcIn=tone=comp=pre=preDcIn=preDc=env=antiAlias=deEmphasis=adcLow=dacLow=feedbackSample=feedbackLow=0.0f; rng=0x91e10da5u;
 }
 float ChorusProcessor::Voice::read(float delaySamples) const
@@ -146,7 +146,10 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float dMs=model==1?(dmmShort?dmmBase/(1.f+juce::jlimit(-0.32f,0.32f,(dmmSweep/juce::jmax(6.f,dmmBase))*lfo)):dmmBase+dmmSweep*lfo)
                     :(model==7?(junoMode==2?3.5f:3.505f)+junoSweep*lfo
                     :baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter));
-                const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
+                // MidiVerb II: independent lower-rate delay memory; its precise clock
+                // remains unverified, so 23.4 kHz is an explicit approximation.
+                constexpr double midiVerbProcessingHz=23400.0;
+                const float delaySamples=(float)((model==4?midiVerbProcessingHz:fs)*0.001)*juce::jmax(1.0f,dMs);
                 float input=dry;
                 // Independent analogue front-ends: CE-2 BBD, DMM preamp/BBD,
                 // and Dimension BBD. These are informed approximations, not SPICE.
@@ -231,6 +234,21 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     }
                     // Output reconstruction operates on held charge packets.
                     delayed=s.heldBbd;
+                }
+                else if(model==4)
+                {
+                    // Original independent sample-rate implementation: sample/quantise
+                    // into a fixed-rate delay memory, not the host-rate delay buffer.
+                    // Multiple ticks are handled at low host sample rates.
+                    s.digitalPhase+=midiVerbProcessingHz/fs;
+                    const int ticks=(int)s.digitalPhase;
+                    s.digitalPhase-=ticks;
+                    for(int tick=0;tick<ticks;++tick)
+                    {
+                        s.push(input);
+                        s.digitalHeld=s.read(delaySamples);
+                    }
+                    delayed=s.digitalHeld;
                 }
                 else
                 {
