@@ -44,9 +44,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
 {
     juce::AudioProcessorValueTreeState::ParameterLayout l;
     using F=juce::AudioParameterFloat; using C=juce::AudioParameterChoice;
-    l.add(std::make_unique<C>(juce::ParameterID{"model",1},"Model",juce::StringArray{"CE-2 BBD","Deluxe Memory Man BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX90 Symphonic","SPX990 Symphonic"},0));
+    l.add(std::make_unique<C>(juce::ParameterID{"model",1},"Model",juce::StringArray{"CE-2 BBD","Deluxe Memory Man BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX90 Symphonic","SPX990 Symphonic","Juno-60 Chorus"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"monoStereo",1},"Mono Chorus Output",juce::StringArray{"Original Mono","Stereo (Opposite LFO)"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
+    l.add(std::make_unique<C>(juce::ParameterID{"junoMode",1},"Juno Chorus",juce::StringArray{"I","II","I+II"},0));
+    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(50.f,550.f,1.f,0.7f),300.f));
     l.add(std::make_unique<C>(juce::ParameterID{"dmmMode",1},"DMM Modulation",juce::StringArray{"Chorus","Vibrato"},0));
     l.add(std::make_unique<F>(juce::ParameterID{"dmmFeedback",1},"DMM Feedback",juce::NormalisableRange<float>(0.f,0.92f,0.01f),0.0f));
     l.add(std::make_unique<C>(juce::ParameterID{"quality",1},"Quality",juce::StringArray{"Normal","High"},0));
@@ -77,7 +79,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     juce::ScopedNoDenormals noDenormals;
     const int channels=juce::jmin(buffer.getNumChannels(),2);
     if(channels<=0 || voices[0][0].delay.empty()) return;
-    const int model=juce::jlimit(0,6,(int)*parameters.getRawParameterValue("model"));
+    const int model=juce::jlimit(0,7,(int)*parameters.getRawParameterValue("model"));
     const float rate=parameters.getRawParameterValue("rate")->load();
     const float depth=*parameters.getRawParameterValue("depth");
     const float mix=*parameters.getRawParameterValue("mix");
@@ -88,13 +90,15 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const int quality=(int)*parameters.getRawParameterValue("quality");
     const int mode=juce::jlimit(0,3,(int)*parameters.getRawParameterValue("mode"));
     const bool stereoMonoChorus=parameters.getRawParameterValue("monoStereo")->load()>.5f;
-    const int voicesUsed=model==3?3:(model>=5?6:(model==2?4:(model==4?2:1)));
+    const int voicesUsed=model==7?1:(model==3?3:(model>=5?6:(model==2?2:(model==4?2:1))));
+    const int junoMode=juce::jlimit(0,2,(int)parameters.getRawParameterValue("junoMode")->load());
+    const float dmmDelay=parameters.getRawParameterValue("dmmDelay")->load();
     const bool dmmVibrato=parameters.getRawParameterValue("dmmMode")->load()>.5f;
     const float dmmFeedback=parameters.getRawParameterValue("dmmFeedback")->load();
-    const float baseMs[]={7.2f,260.0f,8.0f,11.0f,18.0f,21.0f,19.0f};
-    const float sweepMs[]={0.85f,2.2f,0.65f,3.5f,3.0f,4.0f,3.2f};
-    const float rates[]={0.55f,1.0f,0.45f,0.72f,0.48f,0.31f,0.34f};
-    const float bandwidth[]={6500.0f,4300.0f,6700.0f,8000.0f,5300.0f,10500.0f,14500.0f};
+    const float baseMs[]={7.2f,260.0f,8.0f,11.0f,18.0f,21.0f,19.0f,7.5f};
+    const float sweepMs[]={0.85f,2.2f,0.65f,3.5f,3.0f,4.0f,3.2f,1.1f};
+    const float rates[]={0.55f,1.0f,0.45f,0.72f,0.48f,0.31f,0.34f,1.0f};
+    const float bandwidth[]={6500.0f,4300.0f,6700.0f,8000.0f,5300.0f,10500.0f,14500.0f,7000.f};
     for(int sample=0;sample<buffer.getNumSamples();++sample)
     {
         for(int ch=0;ch<channels;++ch)
@@ -109,36 +113,38 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // optional stereo puts the right channel 180 degrees out of phase.
                 const double stereoOffset=(model<=1)
                     ? ((stereoMonoChorus && ch==1)?0.5:0.0)
-                    : ((ch==1)?width*(model==2?0.5:0.25):0.0);
+                    : (model==7?(ch==1?0.5:0.0):((ch==1)?width*(model==2?0.5:0.25):0.0));
                 // Separate phase accumulators per voice/channel allow independent architecture and stable stereo offsets.
                 const double phase=s.phase+phaseOffset+stereoOffset;
                 const float sine=(float)std::sin(2.0*pi*phase);
                 const float triangle=(float)(2.0/pi*std::asin(std::sin(2.0*pi*phase)));
-                // DMM chorus: triangle clock modulation; vibrato: rounded sine.
-                const float lfo=model==0?triangle:(model==1?triangle:(model==2?(0.75f*sine+0.25f*triangle):sine));
+                // DMM switch changes LFO timing, not the oscillator waveform.
+                const float lfo=(model==0||model==1||model==7)?triangle:(model==2?(0.75f*sine+0.25f*triangle):sine);
                 const float jitter=(model>=4)?0.035f*std::sin((float)(phase*2.0*pi*7.13)):0.0f;
                 // Dimension modes select fixed modulation patterns, not a user sweep.
                 const float dimensionDepth[]={0.32f,0.48f,0.62f,0.76f};
                 const float modeDepth[]={0.55f,0.78f,1.0f,1.0f};
-                const float effectiveDepth=model==2?dimensionDepth[mode]:(model>=4?modeDepth[juce::jmin(mode,2)]:depth);
+                const float effectiveDepth=model==2?dimensionDepth[mode]:(model>=4&&model<=6?modeDepth[juce::jmin(mode,2)]:depth);
                 const float effectiveRate=model==2?(0.45f+0.11f*(float)mode):(model==0?juce::jlimit(0.25f,1.8f,rate):rate);
                 // The three digital mode banks select different tap arrangements.
                 const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?4.f:9.f))
                     :(model==5?(mode==0?0.f:(mode==1?3.f:6.f))
                     :(model==6?(mode==0?1.f:(mode==1?4.5f:7.5f)):0.f));
-                const float dmmBase=juce::jmap(depth,0.f,1.f,145.f,460.f);
+                const float dmmBase=dmmDelay;
                 const float dmmSweep=2.2f*depth; // Depth attenuates LFO feed to the clock in both positions.
                 const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
-                const float dMs=model==1
-                    ? dmmBase+dmmSweep*lfo
-                    : baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter);
+                const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
+                const float junoSweep=junoMode==2?0.32f:1.1f;
+                const float dMs=model==1?dmmBase+dmmSweep*lfo
+                    :(model==7?baseMs[7]+junoSweep*lfo
+                    :baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter));
                 const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
                 float input=dry;
                 // Independent analogue front-ends: CE-2 BBD, DMM preamp/BBD,
                 // and Dimension BBD. These are informed approximations, not SPICE.
-                if(model<=2)
+                if(model<=2||model==7)
                 {
-                    const float preHz=model==0?1050.f:(model==1?760.f:1200.f);
+                    const float preHz=model==0?1050.f:(model==1?760.f:(model==7?1400.f:1200.f));
                     const float preLow=onePole(input,s.pre,preHz,fs);
                     const float emphasized=input+(model==1?.22f:.38f)*(input-preLow);
                     if(model==1) {
@@ -154,9 +160,9 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     const float compGain=1.f/std::sqrt(1.f+4.f*envelope);
                     input*=compGain;
                     // Clock-limited anti-aliasing before BBD.
-                    input=onePole(input,s.antiAlias,model==1?5300.f:8500.f,fs);
+                    input=onePole(input,s.antiAlias,model==1?5300.f:(model==7?7000.f:8500.f),fs);
                 }
-                else if(model>=4)
+                else if(model>=4&&model<=6)
                 {
                     // Model-specific converter input: separate analogue
                     // anti-alias filters, quantisation, and reconstruction.
@@ -178,14 +184,14 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // filtered, bounded analogue loop. Other models remain feed-forward.
                 if(model==1) input=std::tanh(input+dmmFeedback*s.feedbackSample);
                 float delayed=0.f;
-                if(model<=2)
+                if(model<=2||model==7)
                 {
-                    // Two-phase clock: 1024-stage MN3007 => 512 complete
-                    // transfers, 2 x 4096-stage MN3005 => 4096 transfers.
-                    // Dimension SDD-320 uses separate MN3007 lines.
-                    const int cells=model==1?4096:512;
+                    // Two-phase BBD clock, using effective full clock cycles:
+                    // MN3007: 1024 stages / 2; two MN3005: 8192 / 2;
+                    // MN3009: 256 / 2. Each model has independent clock state.
+                    const int cells=model==1?4096:(model==7?128:512); // MN3009: 256 stages
                     const float nominalMs=model==1?dmmBase:baseMs[model];
-                    const float modulationMs=dMs-nominalMs;
+                    
                     const double nominalClock=(double)cells/(0.001*(double)nominalMs);
                     // Delay is inversely proportional to clock frequency.
                     // Clock oscillator is modulated, not a read pointer.
@@ -200,7 +206,12 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     {
                         const float stored=s.bbd[(size_t)s.bbdWrite];
                         // Bounded charge transfer, with a small per-stage loss.
-                        s.bbd[(size_t)s.bbdWrite]=juce::jlimit(-1.5f,1.5f,input);
+                        // Clock-edge sampling, finite charge-transfer efficiency and
+                        // a small amount of signal-dependent transfer error.
+                        const float previous=s.bbd[(size_t)s.bbdWrite];
+                        const float efficiency=model==1?0.9997f:(model==7?0.9993f:0.9995f);
+                        const float transferred=efficiency*input+(1.f-efficiency)*previous;
+                        s.bbd[(size_t)s.bbdWrite]=juce::jlimit(-1.5f,1.5f,transferred);
                         s.bbdWrite=(s.bbdWrite+1)%cells;
                         s.previousBbd=s.heldBbd;
                         s.heldBbd=stored;
@@ -214,7 +225,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     delayed=s.read(delaySamples);
                 }
                 if(model==1) s.feedbackSample=onePole(delayed,s.feedbackLow,3600.f,fs);
-                if(model<=2)
+                if(model<=2||model==7)
                 {
                     delayed=onePole(delayed,s.tone,bandwidth[model],fs);
                     // Matched envelope expansion and de-emphasis; the
@@ -224,7 +235,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     delayed=onePole(delayed,s.deEmphasis,model==1?4300.f:6200.f,fs);
                     delayed=highpass(delayed,s.dcIn,s.dc,model==1?28.f:55.f,fs);
                 }
-                else if(model>=4)
+                else if(model>=4&&model<=6)
                 {
                     const bool midiverb=model==4;
                     delayed=onePole(delayed,s.dacLow,midiverb?5700.f:(model==5?11500.f:17000.f),fs);
@@ -241,13 +252,13 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 wet+=delayed*weight;
                 // High-quality mode updates phase twice per sample (same net rate) for LFO numerical consistency.
                 const double modeRate=model>=4?(mode==0?0.78:(mode==1?1.0:1.25)):1.0;
-                // Original DMM switch changes oscillator timing, not its waveform or depth.\n                // Nominal rates are engineering approximations pending measurement.\n                const double dmmLfoHz=dmmVibrato?3.6:0.65;\n                const double step=(model==1?dmmLfoHz:(double)(effectiveRate*rates[model]*modeRate))/fs;
+                // Original DMM switch changes oscillator timing, not its waveform or depth.\n                // Nominal rates are engineering approximations pending measurement.\n                const double dmmLfoHz=dmmVibrato?3.6:0.65;\n                const double step=(model==1?dmmLfoHz:(model==7?junoRate:(double)(effectiveRate*rates[model]*modeRate)))/fs;
                 if(quality!=0) {s.phase+=step*0.5; s.phase-=std::floor(s.phase); s.phase+=step*0.5;}
                 else s.phase+=step;
                 s.phase-=std::floor(s.phase);
             }
             // CE-1/CE-2 retain their dry path; Dimension-like and symphonic architectures use decorrelated wet voices.
-            const float wetGain=model>=5?0.85f:(model==2?0.72f:1.0f);
+            const float wetGain=(model>=5&&model<=6)?0.85f:(model==2?0.72f:1.0f);
             // Vibrato suppresses the dry signal; chorus retains dry/wet
             // mixing. A DMM's chorus/vibrato switch selects LFO character,
             // rather than necessarily selecting a 100%-wet vibrato output.
