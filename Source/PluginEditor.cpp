@@ -54,7 +54,7 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
     sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,"dmmDelay",*delay));
     sliders.push_back(std::move(delay));
     auto delayLabel=std::make_unique<juce::Label>();
-    delayLabel->setText("BBD TIME",juce::dontSendNotification);
+    delayLabel->setText("DELAY TIME",juce::dontSendNotification);
     delayLabel->setJustificationType(juce::Justification::centred);
     addAndMakeVisible(*delayLabel);
     labels.push_back(std::move(delayLabel));
