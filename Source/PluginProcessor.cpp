@@ -48,7 +48,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
     l.add(std::make_unique<C>(juce::ParameterID{"monoStereo",1},"Mono Chorus Output",juce::StringArray{"Original Mono","Stereo (Opposite LFO)"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"junoMode",1},"Juno Chorus",juce::StringArray{"I","II","I+II"},0));
-    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(5.f,550.f,0.5f),22.f));
+    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(17.5f,40.f,0.5f),22.f));
     l.add(std::make_unique<C>(juce::ParameterID{"dmmMode",1},"DMM Modulation",juce::StringArray{"Chorus","Vibrato"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"dmmEngine",1},"DMM Engine",juce::StringArray{"Short Modulation","Clocked BBD"},0));
     l.add(std::make_unique<F>(juce::ParameterID{"dmmFeedback",1},"DMM Feedback",juce::NormalisableRange<float>(0.f,0.92f,0.01f),0.0f));
@@ -136,12 +136,12 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // Full mode retains 4096 effective BBD positions; short mode
                 // uses 1024 clocked positions and the same triangle-driven
                 // oscillator character, rather than a moving read pointer.
-                const float dmmBase=dmmShort?juce::jlimit(5.f,35.f,dmmDelay):juce::jlimit(20.f,550.f,dmmDelay);
+                const float dmmBase=dmmShort?juce::jlimit(5.f,35.f,dmmDelay):juce::jlimit(4096.f*1000.f/240000.f+0.01f,40.f,dmmDelay);
                 const float dmmSweep=juce::jmin(2.2f*depth,0.5f*dmmBase); // LFO controls clock frequency; short mode uses a reduced-stage BBD.
                 const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
                 const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
                 const float junoSweep=junoMode==2?0.32f:1.1f;
-                const float dMs=model==1?(dmmShort?dmmBase/(1.f+juce::jlimit(-0.32f,0.32f,(dmmSweep/juce::jmax(6.f,dmmBase))*lfo)):dmmBase+dmmSweep*lfo)
+                const float dMs=model==1?(dmmShort?dmmBase/(1.f+juce::jlimit(-0.32f,0.32f,(dmmSweep/juce::jmax(6.f,dmmBase))*lfo)):juce::jmax(4096.f*1000.f/240000.f,dmmBase+dmmSweep*lfo))
                     :(model==7?baseMs[7]+junoSweep*lfo
                     :baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter));
                 const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
