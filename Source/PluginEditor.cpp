@@ -17,7 +17,7 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
     }
     const char* ids[]={"model","quality","mode","monoStereo"};
     const juce::StringArray choices[]={
-        {"CE-2 BBD","CE-1 BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX Symphonic"},
+        {"CE-2 BBD","Deluxe Memory Man BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX Symphonic"},
         {"Normal","High (2x modulation update)"},
         {"Mode 1","Mode 2","Mode 3","Mode 4"},
         {"Original Mono","Stereo (Opposite LFO)"}
@@ -43,7 +43,8 @@ void ChorusEditor::updateModelControls(){
     sliders[0]->setVisible(!dimension&&!digital);labels[0]->setVisible(!dimension&&!digital);
     sliders[1]->setVisible(!dimension&&!digital);labels[1]->setVisible(!dimension&&!digital);
     sliders[4]->setVisible(false);labels[4]->setVisible(false);
-    sliders[5]->setVisible(false);labels[5]->setVisible(false);
+    sliders[5]->setVisible(m==1);labels[5]->setVisible(m==1);
+    labels[5]->setText("PREAMP GAIN",juce::dontSendNotification);
     combos[2]->setVisible(dimension||digital);
     combos[3]->setVisible(m<=1);
     resized();
@@ -54,7 +55,7 @@ void ChorusEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xffe3c18a)); g.setFont(28.0f);
     g.drawText("ANALOG CHORUS COLLECTION",25,20,getWidth()-50,42,juce::Justification::centred);
     g.setColour(juce::Colours::lightgrey); g.setFont(14.0f);
-    g.drawText("Six chorus architectures with model-specific modes",25,66,getWidth()-50,24,juce::Justification::centred);
+    g.drawText("CE-2 / Deluxe Memory Man / Dimension / Tri-Chorus / Midiverb / SPX",25,66,getWidth()-50,24,juce::Justification::centred);
     g.drawText("MODEL",55,110,130,22,juce::Justification::centred);
     g.drawText("QUALITY",540,110,180,22,juce::Justification::centred);
     g.setColour(juce::Colour(0xff75818c));
