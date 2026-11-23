@@ -44,7 +44,7 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
     feedbackLabel->setJustificationType(juce::Justification::centred);
     addAndMakeVisible(*feedbackLabel);
     labels.push_back(std::move(feedbackLabel));
-    setSize(900, 440);
+    setSize(900, 520);
     p.parameters.addParameterListener("model",this); updateModelControls();
 }
 ChorusEditor::~ChorusEditor(){processor.parameters.removeParameterListener("model",this);}
@@ -74,7 +74,7 @@ void ChorusEditor::paint(juce::Graphics& g)
     g.drawText("MODEL",55,110,130,22,juce::Justification::centred);
     g.drawText("QUALITY",540,110,180,22,juce::Justification::centred);
     g.setColour(juce::Colour(0xff75818c));
-    g.drawText("Original DSP approximations; not factory-preset or measured hardware clones",20,399,getWidth()-40,22,juce::Justification::centred);
+    g.drawText("Original DSP approximations; not factory-preset or measured hardware clones",20,494,getWidth()-40,22,juce::Justification::centred);
 }
 void ChorusEditor::resized()
 {
@@ -82,8 +82,8 @@ void ChorusEditor::resized()
     combos[2]->setBounds(195,150,325,28);
     combos[3]->setBounds(195,150,325,28);
     combos[4]->setBounds(540,175,270,28);
-    labels[7]->setBounds(770,215,110,24);
-    sliders[7]->setBounds(770,240,110,110);
+    labels[7]->setBounds(55,360,130,24);
+    sliders[7]->setBounds(55,385,130,105);
     for(int i=0;i<7;++i)
     {
         const int x=30+i*110;
