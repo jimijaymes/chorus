@@ -18,7 +18,7 @@ float highpass(float x,float& lastIn,float& lastOut,float hz,double sr)
 }
 void ChorusProcessor::Voice::reset(int size)
 {
-    delay.assign((size_t)size,0.0f); write=0; phase=0.0; dc=dcIn=tone=comp=pre=0.0f;
+    delay.assign((size_t)size,0.0f); write=0; phase=0.0; dc=dcIn=tone=comp=pre=preDcIn=preDc=env=antiAlias=deEmphasis=adcLow=dacLow=0.0f; rng=0x91e10da5u;
 }
 float ChorusProcessor::Voice::read(float delaySamples) const
 {
@@ -41,7 +41,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
 {
     juce::AudioProcessorValueTreeState::ParameterLayout l;
     using F=juce::AudioParameterFloat; using C=juce::AudioParameterChoice;
-    l.add(std::make_unique<C>(juce::ParameterID{"model",1},"Model",juce::StringArray{"CE-2 BBD","CE-1 BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX Symphonic"},0));
+    l.add(std::make_unique<C>(juce::ParameterID{"model",1},"Model",juce::StringArray{"CE-2 BBD","Deluxe Memory Man BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX Symphonic"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"monoStereo",1},"Mono Chorus Output",juce::StringArray{"Original Mono","Stereo (Opposite LFO)"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"quality",1},"Quality",juce::StringArray{"Normal","High"},0));
@@ -77,17 +77,17 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const float depth=*parameters.getRawParameterValue("depth");
     const float mix=*parameters.getRawParameterValue("mix");
     const float width=*parameters.getRawParameterValue("width");
-    const float tone=0.5f; // Legacy parameter retained; fixed hardware voicing.
-    const float drive=0.0f; // Legacy parameter retained for preset compatibility, not applied.
+    
+    const float drive=parameters.getRawParameterValue("drive")->load(); // DMM preamp gain only.
     const float gain=juce::Decibels::decibelsToGain(parameters.getRawParameterValue("level")->load());
     const int quality=(int)*parameters.getRawParameterValue("quality");
     const int mode=juce::jlimit(0,3,(int)*parameters.getRawParameterValue("mode"));
     const bool stereoMonoChorus=parameters.getRawParameterValue("monoStereo")->load()>.5f;
     const int voicesUsed=model==3?3:(model==5?6:(model==2?4:(model==4?2:1)));
-    const float baseMs[]={7.2f,5.4f,8.0f,11.0f,18.0f,21.0f};
-    const float sweepMs[]={0.85f,1.5f,0.65f,3.5f,3.0f,4.0f};
+    const float baseMs[]={7.2f,24.0f,8.0f,11.0f,18.0f,21.0f};
+    const float sweepMs[]={0.85f,3.0f,0.65f,3.5f,3.0f,4.0f};
     const float rates[]={0.55f,0.85f,0.45f,0.72f,0.48f,0.31f};
-    const float bandwidth[]={6500.0f,5200.0f,7000.0f,8000.0f,4700.0f,4300.0f};
+    const float bandwidth[]={6500.0f,4300.0f,6700.0f,8000.0f,5300.0f,10500.0f};
     for(int sample=0;sample<buffer.getNumSamples();++sample)
     {
         for(int ch=0;ch<channels;++ch)
@@ -107,7 +107,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const double phase=s.phase+phaseOffset+stereoOffset;
                 const float sine=(float)std::sin(2.0*pi*phase);
                 const float triangle=(float)(2.0/pi*std::asin(std::sin(2.0*pi*phase)));
-                const float lfo=(model<=1)?triangle:((model==2)?(0.75f*sine+0.25f*triangle):sine);
+                const float lfo=(model==0)?triangle:(model==1?0.8f*sine+0.2f*triangle:((model==2)?(0.75f*sine+0.25f*triangle):sine));
                 const float jitter=(model>=4)?0.07f*std::sin((float)(phase*2.0*pi*7.13)):0.0f;
                 // Dimension modes select fixed modulation patterns, not a user sweep.
                 const float dimensionDepth[]={0.32f,0.48f,0.62f,0.76f};
@@ -118,30 +118,66 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float dMs=baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(lfo+jitter);
                 const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
                 float input=dry;
-                if(model<=1)
+                // Independent analogue front-ends: CE-2 BBD, DMM preamp/BBD,
+                // and Dimension BBD. These are informed approximations, not SPICE.
+                if(model<=2)
                 {
-                    // Input pre-emphasis, BBD companding and finite bucket bandwidth.
-                    const float low=onePole(input,s.pre,950.0f,fs);
-                    input=std::tanh((input+0.45f*(input-low))*(1.0f+drive*2.0f));
-                    input=std::copysign(std::sqrt(std::abs(input)+1.0e-12f),input);
+                    const float preHz=model==0?1050.f:(model==1?760.f:1200.f);
+                    const float preLow=onePole(input,s.pre,preHz,fs);
+                    const float emphasized=input+(model==1?.22f:.38f)*(input-preLow);
+                    if(model==1) {
+                        // Deluxe Memory Man preamp: soft asymmetric 9V-era
+                        // analogue gain and AC-coupled signal path.
+                        const float preGain=1.2f+3.2f*drive;
+                        input=std::tanh(preGain*emphasized+.075f)-std::tanh(.075f);
+                        input=highpass(input,s.preDcIn,s.preDc,18.f,fs);
+                    } else input=std::tanh(emphasized*1.08f);
+                    // Envelope-following compander approximation: compress
+                    // before BBD; expansion after delay uses same envelope.
+                    const float envelope=onePole(std::abs(input),s.env,model==1?38.f:52.f,fs);
+                    const float compGain=1.f/std::sqrt(1.f+4.f*envelope);
+                    input*=compGain;
+                    // Clock-limited anti-aliasing before BBD.
+                    input=onePole(input,s.antiAlias,model==1?5300.f:8500.f,fs);
                 }
                 else if(model>=4)
                 {
-                    // Vintage 12-bit-inspired digital quantisation and converter coloration.
-                    input=std::tanh(input*(1.0f+drive*2.0f));
-                    input=std::round(input*2048.0f)/2048.0f;
+                    // Model-specific converter input: separate analogue
+                    // anti-alias filters, quantisation, and reconstruction.
+                    const bool midiverb=model==4;
+                    const float adcHz=midiverb?6500.f:14500.f;
+                    input=onePole(input,s.adcLow,adcHz,fs);
+                    input=std::tanh(input*(midiverb?1.12f:1.035f));
+                    const float steps=midiverb?2048.f:32768.f;
+                    // Deterministic triangular dither avoids low-level
+                    // quantisation dead zones without a shared random engine.
+                    s.rng=s.rng*1664525u+1013904223u;
+                    const float d1=(float)((s.rng>>8)&65535u)/65535.f;
+                    s.rng=s.rng*1664525u+1013904223u;
+                    const float d2=(float)((s.rng>>8)&65535u)/65535.f;
+                    input=std::round((input+(d1-d2)/steps)*steps)/steps;
                 }
-                else input=std::tanh(input*(1.0f+drive));
+                else input=onePole(input,s.antiAlias,9000.f,fs);
                 s.push(input);
                 float delayed=s.read(delaySamples);
-                const float cutoff=bandwidth[model]*(0.5f+tone);
-                delayed=onePole(delayed,s.tone,cutoff,fs);
-                if(model<=1)
+                if(model<=2)
                 {
-                    delayed=std::copysign(delayed*delayed,delayed);
-                    delayed=highpass(delayed,s.dcIn,s.dc,65.0f,fs);
+                    delayed=onePole(delayed,s.tone,bandwidth[model],fs);
+                    // Matched envelope expansion and de-emphasis; the
+                    // nonlinear BBD output is intentionally subtle.
+                    const float expansion=std::sqrt(1.f+4.f*s.env);
+                    delayed=std::tanh(delayed*expansion*1.08f);
+                    delayed=onePole(delayed,s.deEmphasis,model==1?4300.f:6200.f,fs);
+                    delayed=highpass(delayed,s.dcIn,s.dc,model==1?28.f:55.f,fs);
                 }
-                else if(model>=4) delayed=highpass(delayed,s.dcIn,s.dc,110.0f,fs);
+                else if(model>=4)
+                {
+                    const bool midiverb=model==4;
+                    delayed=onePole(delayed,s.dacLow,midiverb?5700.f:13200.f,fs);
+                    delayed=onePole(delayed,s.tone,bandwidth[model],fs);
+                    delayed=highpass(delayed,s.dcIn,s.dc,midiverb?95.f:24.f,fs);
+                }
+                else delayed=onePole(delayed,s.tone,bandwidth[model],fs);
                 wet+=delayed/(float)voicesUsed;
                 // High-quality mode updates phase twice per sample (same net rate) for LFO numerical consistency.
                 const double modeRate=model>=4?(mode==0?0.78:(mode==1?1.0:1.25)):1.0;
