@@ -133,15 +133,15 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?4.f:9.f))
                     :(model==5?(mode==0?0.f:(mode==1?3.f:6.f))
                     :(model==6?(mode==0?1.f:(mode==1?4.5f:7.5f)):0.f));
-                // Shortest practical clocked BBD transit for the two-MN3005
-                // topology under the modelled 240 kHz clock ceiling.
-                // Align the dry path with the nominal wet transit time.
+                // Full mode retains 4096 effective BBD positions; short mode
+                // uses 1024 clocked positions and the same triangle-driven
+                // oscillator character, rather than a moving read pointer.
                 const float dmmBase=dmmShort?juce::jlimit(6.f,16.f,dmmDelay*0.45f):dmmDelay;
-                const float dmmSweep=2.2f*depth; // Depth attenuates LFO feed to the clock in both positions.
+                const float dmmSweep=2.2f*depth; // LFO controls clock frequency; short mode uses a reduced-stage BBD.
                 const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
                 const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
                 const float junoSweep=junoMode==2?0.32f:1.1f;
-                const float dMs=model==1?dmmBase+dmmSweep*lfo
+                const float dMs=model==1?(dmmShort?dmmBase/(1.f+juce::jlimit(-0.32f,0.32f,(dmmSweep/juce::jmax(6.f,dmmBase))*lfo)):dmmBase+dmmSweep*lfo)
                     :(model==7?baseMs[7]+junoSweep*lfo
                     :baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter));
                 const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
@@ -190,12 +190,12 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // filtered, bounded analogue loop. Other models remain feed-forward.
                 if(model==1) input=std::tanh(input+dmmFeedback*s.feedbackSample);
                 float delayed=0.f;
-                if((model<=2||model==7) && !(model==1&&dmmShort))
+                if(model<=2||model==7)
                 {
-                    // Two-phase BBD clock, using effective full clock cycles:
-                    // MN3007: 1024 stages / 2; two MN3005: 8192 / 2;
-                    // MN3009: 256 / 2. Each model has independent clock state.
-                    const int cells=model==1?4096:(model==7?128:512); // MN3009: 256 stages
+                    // Clocked BBD transfer: full DMM 4096 effective positions,
+                    // short DMM 1024 effective positions (modified architecture).
+                    // Both use a modulated clock, not an interpolated read tap.
+                    const int cells=model==1?(dmmShort?1024:4096):(model==7?128:512); // MN3009: 256 stages
                     const float nominalMs=model==1?dmmBase:baseMs[model];
                     
                     const double nominalClock=(double)cells/(0.001*(double)nominalMs);
@@ -215,7 +215,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                         // Clock-edge sampling, finite charge-transfer efficiency and
                         // a small amount of signal-dependent transfer error.
                         const float previous=s.bbd[(size_t)s.bbdWrite];
-                        const float efficiency=model==1?0.9997f:(model==7?0.9993f:0.9995f);
+                        const float efficiency=model==1?(dmmShort?0.9988f:0.9997f):(model==7?0.9993f:0.9995f);
                         const float transferred=efficiency*input+(1.f-efficiency)*previous;
                         s.bbd[(size_t)s.bbdWrite]=juce::jlimit(-1.5f,1.5f,transferred);
                         s.bbdWrite=(s.bbdWrite+1)%cells;
@@ -229,17 +229,6 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 {
                     s.push(input);
                     delayed=s.read(delaySamples);
-                    if(model==1&&dmmShort)
-                    {
-                        // Reduced-latency BBD-inspired path: the interpolation
-                        // supplies pitch motion, while these stages approximate
-                        // finite charge transfer, clock-rate bandwidth and
-                        // nonlinear losses. This is NOT a clocked 4096-cell BBD.
-                        const float equivalentClock=4096.f/(0.001f*juce::jmax(1.f,dMs));
-                        const float transferHz=juce::jlimit(2800.f,7500.f,equivalentClock*0.065f);
-                        delayed=onePole(delayed,s.bbdCharge,transferHz,fs);
-                        delayed=std::tanh(delayed*1.025f)*0.99f;
-                    }
                 }
                 if(model==1) s.feedbackSample=onePole(delayed,s.feedbackLow,3600.f,fs);
                 if(model<=2||model==7)
