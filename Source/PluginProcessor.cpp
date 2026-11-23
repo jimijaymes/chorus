@@ -100,7 +100,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const bool dmmVibrato=parameters.getRawParameterValue("dmmMode")->load()>.5f;
     const bool dmmShort=parameters.getRawParameterValue("dmmEngine")->load()<0.5f;
     const float dmmFeedback=parameters.getRawParameterValue("dmmFeedback")->load();
-    const float baseMs[]={7.2f,260.0f,8.0f,11.0f,18.0f,21.0f,19.0f,7.5f};
+    const float baseMs[]={512000.f/131000.f,260.0f,8.0f,11.0f,18.0f,21.0f,19.0f,7.5f};
     const float sweepMs[]={0.85f,2.2f,0.65f,3.5f,3.0f,4.0f,3.2f,1.1f};
     const float rates[]={0.55f,1.0f,0.45f,0.72f,0.48f,0.31f,0.34f,1.0f};
     const float bandwidth[]={6500.0f,4300.0f,6700.0f,8000.0f,5300.0f,10500.0f,14500.0f,7000.f};
@@ -130,7 +130,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float dimensionDepth[]={0.32f,0.48f,0.62f,0.76f};
                 const float modeDepth[]={0.55f,0.78f,1.0f,1.0f};
                 const float effectiveDepth=model==2?dimensionDepth[mode]:(model>=4&&model<=6?modeDepth[juce::jmin(mode,2)]:depth);
-                const float effectiveRate=model==2?(0.45f+0.11f*(float)mode):(model==0?juce::jlimit(0.25f,1.8f,rate):rate);
+                const float effectiveRate=model==2?(0.45f+0.11f*(float)mode):rate;
                 // The three digital mode banks select different tap arrangements.
                 const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?4.f:9.f))
                     :(model==5?(mode==0?0.f:(mode==1?3.f:6.f))
@@ -203,8 +203,13 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     const double nominalClock=(double)cells/(0.001*(double)nominalMs);
                     // Delay is inversely proportional to clock frequency.
                     // Clock oscillator is modulated, not a read pointer.
-                    const double clockHz=juce::jlimit(3000.0,240000.0,
-                        nominalClock*(double)nominalMs/(double)juce::jmax(0.5f,dMs));
+                    // CE-2 reference simulation: about 131 kHz centre and
+                    // 108-164 kHz at full depth, yielding ~3.1-4.8 ms.
+                    // Other BBD models retain their own clock mapping.
+                    const double clockHz=model==0
+                        ? (131000.0+28000.0*(double)depth*(double)triangle)
+                        : juce::jlimit(3000.0,240000.0,
+                            nominalClock*(double)nominalMs/(double)juce::jmax(0.5f,dMs));
                     s.clockPhase+=clockHz/fs;
                     // At extreme host rates, process every elapsed clock tick
                     // to avoid losing bucket transfers.
@@ -264,7 +269,8 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // user-adjustable trim around the chorus/vibrato ranges.
                 const double dmmLfoHz=(dmmVibrato?2.0:0.35)
                     *juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.5,2.0);
-                const double step=(model==1?dmmLfoHz:(model==7?junoRate:(double)(effectiveRate*rates[model]*modeRate)))/fs;
+                const double ce2Rate=juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.3,3.5);
+                const double step=(model==0?ce2Rate:(model==1?dmmLfoHz:(model==7?junoRate:(double)(effectiveRate*rates[model]*modeRate))))/fs;
                 if(quality!=0) {s.phase+=step*0.5; s.phase-=std::floor(s.phase); s.phase+=step*0.5;}
                 else s.phase+=step;
                 s.phase-=std::floor(s.phase);
