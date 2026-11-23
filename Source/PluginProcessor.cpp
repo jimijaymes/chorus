@@ -41,7 +41,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
 {
     juce::AudioProcessorValueTreeState::ParameterLayout l;
     using F=juce::AudioParameterFloat; using C=juce::AudioParameterChoice;
-    l.add(std::make_unique<C>(juce::ParameterID{"model",1},"Model",juce::StringArray{"CE-2 BBD","CE-1 BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","Midiverb II Symphonic"},0));
+    l.add(std::make_unique<C>(juce::ParameterID{"model",1},"Model",juce::StringArray{"CE-2 BBD","CE-1 BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX Symphonic"},0));
+    l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"quality",1},"Quality",juce::StringArray{"Normal","High"},0));
     l.add(std::make_unique<F>(juce::ParameterID{"rate",1},"Rate",juce::NormalisableRange<float>(0.05f,6.0f,0.001f,0.4f),0.8f));
     l.add(std::make_unique<F>(juce::ParameterID{"depth",1},"Depth",juce::NormalisableRange<float>(0.0f,1.0f),0.55f));
@@ -75,14 +76,15 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const float depth=*parameters.getRawParameterValue("depth");
     const float mix=*parameters.getRawParameterValue("mix");
     const float width=*parameters.getRawParameterValue("width");
-    const float tone=*parameters.getRawParameterValue("tone");
-    const float drive=*parameters.getRawParameterValue("drive");
+    const float tone=0.5f; // Legacy parameter retained; fixed hardware voicing.
+    const float drive=0.0f; // Legacy parameter retained for preset compatibility, not applied.
     const float gain=juce::Decibels::decibelsToGain(parameters.getRawParameterValue("level")->load());
     const int quality=(int)*parameters.getRawParameterValue("quality");
-    const int voicesUsed=model==3?3:(model==5?6:(model==2?2:1));
-    const float baseMs[]={7.2f,5.4f,7.5f,11.0f,18.0f,21.0f};
-    const float sweepMs[]={2.3f,2.7f,1.9f,3.5f,5.5f,7.0f};
-    const float rates[]={1.0f,0.85f,0.58f,0.72f,0.48f,0.31f};
+    const int mode=juce::jlimit(0,3,(int)*parameters.getRawParameterValue("mode"));
+    const int voicesUsed=model==3?3:(model==5?6:(model==2?4:(model==4?2:1)));
+    const float baseMs[]={7.2f,5.4f,8.0f,11.0f,18.0f,21.0f};
+    const float sweepMs[]={0.85f,1.5f,0.65f,3.5f,3.0f,4.0f};
+    const float rates[]={0.55f,0.85f,0.45f,0.72f,0.48f,0.31f};
     const float bandwidth[]={6500.0f,5200.0f,7000.0f,8000.0f,4700.0f,4300.0f};
     for(int sample=0;sample<buffer.getNumSamples();++sample)
     {
@@ -93,7 +95,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
             for(int v=0;v<voicesUsed;++v)
             {
                 auto& s=voices[(size_t)ch][(size_t)v];
-                const double phaseOffset=(model==3||model==5)?(double)v/(double)voicesUsed:((model==2&&v==1)?0.5:0.0);
+                const double phaseOffset=(model==3||model==5||model==2)?(double)v/(double)voicesUsed:(model==4&&v==1?0.5:0.0);
                 const double stereoOffset=(ch==1)?width*(model==2?0.5:0.25):0.0;
                 // Separate phase accumulators per voice/channel allow independent architecture and stable stereo offsets.
                 const double phase=s.phase+phaseOffset+stereoOffset;
@@ -101,7 +103,12 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float triangle=(float)(2.0/pi*std::asin(std::sin(2.0*pi*phase)));
                 const float lfo=(model<=1)?triangle:((model==2)?(0.75f*sine+0.25f*triangle):sine);
                 const float jitter=(model>=4)?0.07f*std::sin((float)(phase*2.0*pi*7.13)):0.0f;
-                const float dMs=baseMs[model]+depth*sweepMs[model]*(lfo+jitter);
+                // Dimension modes select fixed modulation patterns, not a user sweep.
+                const float dimensionDepth[]={0.32f,0.48f,0.62f,0.76f};
+                const float modeDepth[]={0.55f,0.78f,1.0f,1.0f};
+                const float effectiveDepth=model==2?dimensionDepth[mode]:(model>=4?modeDepth[juce::jmin(mode,2)]:depth);
+                const float effectiveRate=model==2?(0.45f+0.11f*(float)mode):rate;
+                const float dMs=baseMs[model]+effectiveDepth*sweepMs[model]*(lfo+jitter);
                 const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
                 float input=dry;
                 if(model<=1)
@@ -130,13 +137,14 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 else if(model>=4) delayed=highpass(delayed,s.dcIn,s.dc,110.0f,fs);
                 wet+=delayed/(float)voicesUsed;
                 // High-quality mode updates phase twice per sample (same net rate) for LFO numerical consistency.
-                const double step=(double)(rate*rates[model])/fs;
+                const double modeRate=model>=4?(mode==0?0.78:(mode==1?1.0:1.25)):1.0;
+                const double step=(double)(effectiveRate*rates[model]*modeRate)/fs;
                 if(quality!=0) {s.phase+=step*0.5; s.phase-=std::floor(s.phase); s.phase+=step*0.5;}
                 else s.phase+=step;
                 s.phase-=std::floor(s.phase);
             }
             // CE-1/CE-2 retain their dry path; Dimension-like and symphonic architectures use decorrelated wet voices.
-            const float wetGain=model==5?0.85f:1.0f;
+            const float wetGain=model==5?0.85f:(model==2?0.72f:1.0f);
             buffer.setSample(ch,sample,gain*((1.0f-mix)*dry+mix*wet*wetGain));
         }
     }
