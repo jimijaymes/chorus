@@ -38,6 +38,8 @@ private:
         std::vector<float> bbd;
         int bbdWrite=0;
         double clockPhase=0.0;
+        double digitalPhase=0.0;
+        float digitalHeld=0.0f;
         float heldBbd=0.0f, previousBbd=0.0f;
         float bbdCharge=0.0f;
         int write = 0;
