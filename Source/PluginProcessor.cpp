@@ -21,7 +21,7 @@ void ChorusProcessor::Voice::reset(int size)
     delay.assign((size_t)size,0.0f);
     bbd.assign(4096,0.0f);
     bbdWrite=0; clockPhase=0.0; digitalPhase=0.0; digitalHeld=0.0f; heldBbd=previousBbd=bbdCharge=0.0f;
-    write=0; phase=0.0; dc=dcIn=tone=comp=pre=preDcIn=preDc=env=antiAlias=deEmphasis=adcLow=dacLow=feedbackSample=feedbackLow=0.0f; rng=0x91e10da5u;
+    write=0; phase=0.0; dc=dcIn=tone=comp=pre=preDcIn=preDc=env=antiAlias=deEmphasis=adcLow=dacLow=feedbackSample=feedbackLow=flPre1=flPre2=flPost1=flPost2=flHpIn=flHpOut=0.0f; rng=0x91e10da5u;
 }
 float ChorusProcessor::Voice::read(float delaySamples) const
 {
@@ -212,6 +212,10 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 if(model==1) input=std::tanh(input+dmmFeedback*s.feedbackSample);
                 if(flanger)
                 {
+                    const float preCut=model==8?12000.f:(model==9?6500.f:7500.f);
+                    input=onePole(input,s.flPre1,preCut,fs);
+                    input=onePole(input,s.flPre2,preCut,fs);
+                    input=highpass(input,s.flHpIn,s.flHpOut,20.f,fs);
                     // Resonance/Color acts in the feedback loop, before the delay.
                     // Prevent runaway with bounded feedback while preserving polarity.
                     input=std::tanh(input+flangeFeedback*s.feedbackSample);
@@ -223,13 +227,13 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     }
                 }
                 float delayed=0.f;
-                if(model<=2||model==7)
+                if(model<=2||model==7||flanger)
                 {
                     // Clocked BBD transfer: full DMM 4096 effective positions,
                     // short DMM 1024 effective positions (modified architecture).
                     // Both use a modulated clock, not an interpolated read tap.
-                    const int cells=model==1?(dmmShort?1024:4096):(model==7?128:512); // MN3009: 256 stages
-                    const float nominalMs=model==1?dmmBase:baseMs[model];
+                    const int cells=model==8?512:(model==9?512:(model==10?1024:(model==1?(dmmShort?1024:4096):(model==7?128:512)))); // BF-2 512, SAD1024 interleaved 512; Polychorus provisional 1024
+                    const float nominalMs=flanger?flangerBase:(model==1?dmmBase:baseMs[model]);
                     
                     const double nominalClock=(double)cells/(0.001*(double)nominalMs);
                     // Delay is inversely proportional to clock frequency.
@@ -239,7 +243,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     // Other BBD models retain their own clock mapping.
                     const double clockHz=model==0
                         ? (131000.0+28000.0*(double)depth*(double)triangle)
-                        : juce::jlimit(3000.0,240000.0,
+                        : juce::jlimit(flanger?2500.0:3000.0,flanger?650000.0:240000.0,
                             nominalClock*(double)nominalMs/(double)juce::jmax(0.5f,dMs));
                     s.clockPhase+=clockHz/fs;
                     // At extreme host rates, process every elapsed clock tick
@@ -253,7 +257,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                         // Clock-edge sampling, finite charge-transfer efficiency and
                         // a small amount of signal-dependent transfer error.
                         const float previous=s.bbd[(size_t)s.bbdWrite];
-                        const float efficiency=model==1?(dmmShort?0.9988f:0.9997f):(model==7?0.9993f:0.9995f);
+                        const float efficiency=flanger?0.9992f:(model==1?(dmmShort?0.9988f:0.9997f):(model==7?0.9993f:0.9995f));
                         const float transferred=efficiency*input+(1.f-efficiency)*previous;
                         s.bbd[(size_t)s.bbdWrite]=juce::jlimit(-1.5f,1.5f,transferred);
                         s.bbdWrite=(s.bbdWrite+1)%cells;
@@ -309,6 +313,12 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 else
                 {
                     delayed=onePole(delayed,s.tone,flanger?(model==8?5500.f:6500.f):bandwidth[model],fs);
+                    if(flanger)
+                    {
+                        const float postCut=model==8?9000.f:(model==9?5200.f:6200.f);
+                        delayed=onePole(delayed,s.flPost1,postCut,fs);
+                        delayed=onePole(delayed,s.flPost2,postCut,fs);
+                    }
                     if(model==9) delayed=onePole(delayed,s.deEmphasis,9000.f,fs);
                 }
                 // Different digital architectures: Midiverb uses two complementary
