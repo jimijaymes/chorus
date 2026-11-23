@@ -48,7 +48,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
     l.add(std::make_unique<C>(juce::ParameterID{"monoStereo",1},"Mono Chorus Output",juce::StringArray{"Original Mono","Stereo (Opposite LFO)"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"junoMode",1},"Juno Chorus",juce::StringArray{"I","II","I+II"},0));
-    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(20.f,40.f,0.5f),22.f));
+    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(5.f,550.f,0.5f),22.f));
     l.add(std::make_unique<C>(juce::ParameterID{"dmmMode",1},"DMM Modulation",juce::StringArray{"Chorus","Vibrato"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"dmmEngine",1},"DMM Engine",juce::StringArray{"Short Modulation","Clocked BBD"},0));
     l.add(std::make_unique<F>(juce::ParameterID{"dmmFeedback",1},"DMM Feedback",juce::NormalisableRange<float>(0.f,0.92f,0.01f),0.0f));
@@ -136,8 +136,8 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // Full mode retains 4096 effective BBD positions; short mode
                 // uses 1024 clocked positions and the same triangle-driven
                 // oscillator character, rather than a moving read pointer.
-                const float dmmBase=dmmShort?juce::jlimit(6.f,16.f,dmmDelay*0.45f):dmmDelay;
-                const float dmmSweep=2.2f*depth; // LFO controls clock frequency; short mode uses a reduced-stage BBD.
+                const float dmmBase=dmmShort?juce::jlimit(5.f,35.f,dmmDelay):juce::jlimit(20.f,550.f,dmmDelay);
+                const float dmmSweep=juce::jmin(2.2f*depth,0.5f*dmmBase); // LFO controls clock frequency; short mode uses a reduced-stage BBD.
                 const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
                 const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
                 const float junoSweep=junoMode==2?0.32f:1.1f;
@@ -272,19 +272,9 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
             // Vibrato suppresses the dry signal; chorus retains dry/wet
             // mixing. A DMM's chorus/vibrato switch selects LFO character,
             // rather than necessarily selecting a 100%-wet vibrato output.
-            float alignedDry=dry;
-            if(model==1&&!dmmShort)
-            {
-                auto& ring=dryDelay[(size_t)ch];
-                const int n=(int)ring.size();
-                const int nominalSamples=juce::jlimit(1,n-2,(int)std::lround(fs*0.001*(double)dmmDelay));
-                const int read=(dryWrite[(size_t)ch]-nominalSamples+n)%n;
-                alignedDry=ring[(size_t)read];
-                ring[(size_t)dryWrite[(size_t)ch]]=dry;
-                dryWrite[(size_t)ch]=(dryWrite[(size_t)ch]+1)%n;
-            }
+            // Always blend with the un-delayed input; no dry-path latency compensation.
             const float dryAmount=1.f-mix;
-            buffer.setSample(ch,sample,gain*(dryAmount*alignedDry+mix*wet*wetGain));
+            buffer.setSample(ch,sample,gain*(dryAmount*dry+mix*wet*wetGain));
         }
     }
     for(int ch=channels;ch<buffer.getNumChannels();++ch) buffer.clear(ch,0,buffer.getNumSamples());
