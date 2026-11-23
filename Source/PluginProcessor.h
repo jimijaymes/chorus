@@ -51,6 +51,8 @@ private:
         void reset(int size);
     };
     std::array<std::array<Voice, 6>, 2> voices;
+    std::array<std::vector<float>,2> dryDelay;
+    std::array<int,2> dryWrite{{0,0}};
     double fs = 48000.0;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ChorusProcessor)
 };
