@@ -48,12 +48,12 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
     auto delay=std::make_unique<juce::Slider>();
     delay->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     delay->setTextBoxStyle(juce::Slider::TextBoxBelow,false,90,20);
-    delay->textFromValueFunction=[](double v){return juce::String(v,0)+" ms";};
+    delay->textFromValueFunction=[](double v){return juce::String(v,1)+" ms";};
     addAndMakeVisible(*delay);
     sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,"dmmDelay",*delay));
     sliders.push_back(std::move(delay));
     auto delayLabel=std::make_unique<juce::Label>();
-    delayLabel->setText("DELAY TIME",juce::dontSendNotification);
+    delayLabel->setText("CHORUS DELAY",juce::dontSendNotification);
     delayLabel->setJustificationType(juce::Justification::centred);
     addAndMakeVisible(*delayLabel);
     labels.push_back(std::move(delayLabel));
@@ -66,7 +66,7 @@ void ChorusEditor::updateModelControls(){
     const int m=juce::jlimit(0,7,(int)processor.parameters.getRawParameterValue("model")->load());
     const bool dimension=m==2,digital=m>=4&&m<=6;
     // Hardware-mode chorus units expose presets rather than independent speed/depth.
-    sliders[0]->setVisible(!dimension&&!digital&&m!=1&&m!=7);labels[0]->setVisible(!dimension&&!digital&&m!=1&&m!=7);
+    sliders[0]->setVisible(!dimension&&!digital&&m!=7);labels[0]->setVisible(!dimension&&!digital&&m!=7);
     sliders[1]->setVisible(!dimension&&!digital&&m!=7);labels[1]->setVisible(!dimension&&!digital&&m!=7);
     sliders[4]->setVisible(false);labels[4]->setVisible(false);
     sliders[5]->setVisible(m==1);labels[5]->setVisible(m==1);
