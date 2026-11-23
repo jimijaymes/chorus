@@ -148,7 +148,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     :baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter));
                 // MidiVerb II: independent lower-rate delay memory; its precise clock
                 // remains unverified, so 23.4 kHz is an explicit approximation.
-                constexpr double midiVerbProcessingHz=23400.0;
+                constexpr double midiVerbProcessingHz=23437.5; // DASP-16 internal tick rate, documented by independent emulation research.
                 const float delaySamples=(float)((model==4?midiVerbProcessingHz:fs)*0.001)*juce::jmax(1.0f,dMs);
                 float input=dry;
                 // Independent analogue front-ends: CE-2 BBD, DMM preamp/BBD,
@@ -181,7 +181,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     const float adcHz=midiverb?6500.f:(model==5?12000.f:18000.f);
                     input=onePole(input,s.adcLow,adcHz,fs);
                     input=std::tanh(input*(midiverb?1.12f:1.035f));
-                    const float steps=midiverb?2048.f:(model==5?16384.f:32768.f);
+                    const float steps=midiverb?8192.f:(model==5?16384.f:32768.f); // approximate 13-bit MV-II quantisation
                     // Deterministic triangular dither avoids low-level
                     // quantisation dead zones without a shared random engine.
                     s.rng=s.rng*1664525u+1013904223u;
