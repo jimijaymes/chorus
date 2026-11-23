@@ -66,11 +66,12 @@ void ChorusEditor::updateModelControls(){
     const int m=juce::jlimit(0,7,(int)processor.parameters.getRawParameterValue("model")->load());
     const bool dimension=m==2,digital=m>=4&&m<=6;
     // Hardware-mode chorus units expose presets rather than independent speed/depth.
-    sliders[0]->setVisible(!dimension&&!digital);labels[0]->setVisible(!dimension&&!digital);
+    sliders[0]->setVisible(!dimension&&!digital&&m!=1&&m!=7);labels[0]->setVisible(!dimension&&!digital&&m!=1&&m!=7);
     sliders[1]->setVisible(!dimension&&!digital&&m!=7);labels[1]->setVisible(!dimension&&!digital&&m!=7);
     sliders[4]->setVisible(false);labels[4]->setVisible(false);
     sliders[5]->setVisible(m==1);labels[5]->setVisible(m==1);
     labels[5]->setText("PREAMP GAIN",juce::dontSendNotification);
+    labels[1]->setText(m==1?"MOD DEPTH":"DEPTH",juce::dontSendNotification);
     combos[2]->setVisible(dimension||digital);
     combos[3]->setVisible(m<=1);
     combos[4]->setVisible(m==1);
