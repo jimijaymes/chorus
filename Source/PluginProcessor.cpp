@@ -18,7 +18,10 @@ float highpass(float x,float& lastIn,float& lastOut,float hz,double sr)
 }
 void ChorusProcessor::Voice::reset(int size)
 {
-    delay.assign((size_t)size,0.0f); write=0; phase=0.0; dc=dcIn=tone=comp=pre=preDcIn=preDc=env=antiAlias=deEmphasis=adcLow=dacLow=feedbackSample=feedbackLow=0.0f; rng=0x91e10da5u;
+    delay.assign((size_t)size,0.0f);
+    bbd.assign(4096,0.0f);
+    bbdWrite=0; clockPhase=0.0; heldBbd=previousBbd=bbdCharge=0.0f;
+    write=0; phase=0.0; dc=dcIn=tone=comp=pre=preDcIn=preDc=env=antiAlias=deEmphasis=adcLow=dacLow=feedbackSample=feedbackLow=0.0f; rng=0x91e10da5u;
 }
 float ChorusProcessor::Voice::read(float delaySamples) const
 {
@@ -174,8 +177,42 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // DMM feedback is injected at the BBD input, through its own
                 // filtered, bounded analogue loop. Other models remain feed-forward.
                 if(model==1) input=std::tanh(input+dmmFeedback*s.feedbackSample);
-                s.push(input);
-                float delayed=s.read(delaySamples);
+                float delayed=0.f;
+                if(model<=2)
+                {
+                    // Two-phase clock: 1024-stage MN3007 => 512 complete
+                    // transfers, 2 x 4096-stage MN3005 => 4096 transfers.
+                    // Dimension SDD-320 uses separate MN3007 lines.
+                    const int cells=model==1?4096:512;
+                    const float nominalMs=model==1?dmmBase:baseMs[model];
+                    const float modulationMs=dMs-nominalMs;
+                    const double nominalClock=(double)cells/(0.001*(double)nominalMs);
+                    // Delay is inversely proportional to clock frequency.
+                    // Clock oscillator is modulated, not a read pointer.
+                    const double clockHz=juce::jlimit(3000.0,240000.0,
+                        nominalClock*(double)nominalMs/(double)juce::jmax(0.5f,dMs));
+                    s.clockPhase+=clockHz/fs;
+                    // At extreme host rates, process every elapsed clock tick
+                    // to avoid losing bucket transfers.
+                    const int ticks=(int)s.clockPhase;
+                    s.clockPhase-=ticks;
+                    for(int tick=0;tick<ticks;++tick)
+                    {
+                        const float stored=s.bbd[(size_t)s.bbdWrite];
+                        // Bounded charge transfer, with a small per-stage loss.
+                        s.bbd[(size_t)s.bbdWrite]=juce::jlimit(-1.5f,1.5f,input);
+                        s.bbdWrite=(s.bbdWrite+1)%cells;
+                        s.previousBbd=s.heldBbd;
+                        s.heldBbd=stored;
+                    }
+                    // Output reconstruction operates on held charge packets.
+                    delayed=s.heldBbd;
+                }
+                else
+                {
+                    s.push(input);
+                    delayed=s.read(delaySamples);
+                }
                 if(model==1) s.feedbackSample=onePole(delayed,s.feedbackLow,3600.f,fs);
                 if(model<=2)
                 {
