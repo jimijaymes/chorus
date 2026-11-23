@@ -271,7 +271,11 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     *juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.5,2.0);
                 const double ce2Rate=juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.3,3.5);
                 const double dimensionRate=mode<2?0.25:0.5; // SDD-320 service notes: 4 s / 2 s modulation periods.
-                const double step=(model==0?ce2Rate:(model==1?dmmLfoHz:(model==2?dimensionRate:(model==7?junoRate:(double)(effectiveRate*rates[model]*modeRate)))))/fs;
+                // Yamaha manual rate limits: SPX90 0.1-20 Hz, SPX990 0.05-40 Hz.
+                const double yamahaRate=model==5
+                    ? juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.1,20.0)
+                    : juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.05,40.0);
+                const double step=(model==0?ce2Rate:(model==1?dmmLfoHz:(model==2?dimensionRate:(model==7?junoRate:(model==5||model==6?yamahaRate:(double)(effectiveRate*rates[model]*modeRate))))))/fs;
                 if(quality!=0) {s.phase+=step*0.5; s.phase-=std::floor(s.phase); s.phase+=step*0.5;}
                 else s.phase+=step;
                 s.phase-=std::floor(s.phase);
