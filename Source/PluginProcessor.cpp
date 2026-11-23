@@ -107,8 +107,9 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float dimensionDepth[]={0.32f,0.48f,0.62f,0.76f};
                 const float modeDepth[]={0.55f,0.78f,1.0f,1.0f};
                 const float effectiveDepth=model==2?dimensionDepth[mode]:(model>=4?modeDepth[juce::jmin(mode,2)]:depth);
-                const float effectiveRate=model==2?(0.45f+0.11f*(float)mode):rate;
-                const float dMs=baseMs[model]+effectiveDepth*sweepMs[model]*(lfo+jitter);
+                const float effectiveRate=model==2?(0.45f+0.11f*(float)mode):(model==0?juce::jlimit(0.25f,1.8f,rate):rate);
+                const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?3.5f:7.0f)):(model==5?(mode==0?0.0f:(mode==1?4.0f:8.0f)):0.0f);
+                const float dMs=baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(lfo+jitter);
                 const float delaySamples=(float)(fs*0.001)*juce::jmax(1.0f,dMs);
                 float input=dry;
                 if(model<=1)
