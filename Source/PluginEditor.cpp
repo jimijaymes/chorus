@@ -17,7 +17,7 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
     }
     const char* ids[]={"model","quality","mode","monoStereo","dmmMode","junoMode","dmmEngine"};
     const juce::StringArray choices[]={
-        {"CE-2 BBD","Deluxe Memory Man BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX90 Symphonic","SPX990 Symphonic","Juno-60 Chorus"},
+        {"CE-2 BBD","Deluxe Memory Man BBD","Dimension-style","Tri-Chorus","Midiverb II Chorus","SPX90 Symphonic","SPX990 Symphonic","Juno-60 Chorus","Boss BF-2 Flanger","Deluxe Electric Mistress","EHX Polychorus"},
         {"Normal","High (2x modulation update)"},
         {"Mode 1","Mode 2","Mode 3","Mode 4"},
         {"Original Mono","Stereo (Opposite LFO)"},
@@ -70,16 +70,30 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
     delayLabel->setJustificationType(juce::Justification::centred);
     addAndMakeVisible(*delayLabel);
     labels.push_back(std::move(delayLabel));
+    for(const auto& spec:std::array<std::pair<const char*,const char*>,2>{{{"flangeManual","MANUAL / TUNE"},{"flangeFeedback","RESONANCE / COLOR"}}})
+    {
+        auto knob=std::make_unique<juce::Slider>();
+        knob->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        knob->setTextBoxStyle(juce::Slider::TextBoxBelow,false,90,20);
+        addAndMakeVisible(*knob);
+        sliderAttachments.push_back(std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.parameters,spec.first,*knob));
+        sliders.push_back(std::move(knob));
+        auto label=std::make_unique<juce::Label>();
+        label->setText(spec.second,juce::dontSendNotification);
+        label->setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(*label);
+        labels.push_back(std::move(label));
+    }
     setSize(900, 520);
     p.parameters.addParameterListener("model",this); p.parameters.addParameterListener("dmmEngine",this); updateModelControls();
 }
 ChorusEditor::~ChorusEditor(){processor.parameters.removeParameterListener("model",this);processor.parameters.removeParameterListener("dmmEngine",this);}
 void ChorusEditor::parameterChanged(const juce::String&,float){juce::MessageManager::callAsync([safe=juce::Component::SafePointer<ChorusEditor>(this)](){if(safe!=nullptr)safe->updateModelControls();});}
 void ChorusEditor::updateModelControls(){
-    const int m=juce::jlimit(0,7,(int)processor.parameters.getRawParameterValue("model")->load());
-    const bool dimension=m==2,digital=m>=4&&m<=6;
+    const int m=juce::jlimit(0,10,(int)processor.parameters.getRawParameterValue("model")->load());
+    const bool dimension=m==2,digital=m>=4&&m<=6,flanger=m>=8;
     // Hardware-mode chorus units expose presets rather than independent speed/depth.
-    sliders[0]->setVisible(!dimension&&!digital&&m!=7);labels[0]->setVisible(!dimension&&!digital&&m!=7);
+    sliders[0]->setVisible((!dimension&&!digital&&m!=7));labels[0]->setVisible(!dimension&&!digital&&m!=7);
     sliders[1]->setVisible(!dimension&&!digital&&m!=7);labels[1]->setVisible(!dimension&&!digital&&m!=7);
     sliders[4]->setVisible(false);labels[4]->setVisible(false);
     sliders[5]->setVisible(m==1);labels[5]->setVisible(m==1);
@@ -91,6 +105,9 @@ void ChorusEditor::updateModelControls(){
     combos[5]->setVisible(m==7);
     combos[6]->setVisible(m==1);
     sliders[7]->setVisible(m==1);labels[7]->setVisible(m==1);
+    sliders[10]->setVisible(flanger);labels[10]->setVisible(flanger);
+    sliders[11]->setVisible(flanger);labels[11]->setVisible(flanger);
+    combos[2]->setVisible(dimension||digital||flanger);
     const bool shortEngine=processor.parameters.getRawParameterValue("dmmEngine")->load()<0.5f;
     sliders[8]->setVisible(m==1&&!shortEngine);labels[8]->setVisible(m==1&&!shortEngine);
     sliders[9]->setVisible(m==1&&shortEngine);labels[9]->setVisible(m==1&&shortEngine);
@@ -102,7 +119,7 @@ void ChorusEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xffe3c18a)); g.setFont(28.0f);
     g.drawText("ANALOG CHORUS COLLECTION",25,20,getWidth()-50,42,juce::Justification::centred);
     g.setColour(juce::Colours::lightgrey); g.setFont(14.0f);
-    g.drawText("CE-2 / DMM / Dimension / Tri-Chorus / Midiverb II / SPX90 / SPX990 / Juno-60",25,66,getWidth()-50,24,juce::Justification::centred);
+    g.drawText("Chorus / Flanger: CE-2, DMM, Juno, BF-2, Mistress, Polychorus + digital models",25,66,getWidth()-50,24,juce::Justification::centred);
     g.drawText("MODEL",55,110,130,22,juce::Justification::centred);
     g.drawText("QUALITY",540,110,180,22,juce::Justification::centred);
     g.setColour(juce::Colour(0xff75818c));
@@ -122,6 +139,10 @@ void ChorusEditor::resized()
     sliders[8]->setBounds(205,385,130,105);
     labels[9]->setBounds(205,360,130,24);
     sliders[9]->setBounds(205,385,130,105);
+    labels[10]->setBounds(390,360,160,24);
+    sliders[10]->setBounds(405,385,130,105);
+    labels[11]->setBounds(570,360,175,24);
+    sliders[11]->setBounds(590,385,130,105);
     for(int i=0;i<7;++i)
     {
         const int x=30+i*110;
