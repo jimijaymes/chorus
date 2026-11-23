@@ -48,7 +48,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
     l.add(std::make_unique<C>(juce::ParameterID{"monoStereo",1},"Mono Chorus Output",juce::StringArray{"Original Mono","Stereo (Opposite LFO)"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"junoMode",1},"Juno Chorus",juce::StringArray{"I","II","I+II"},0));
-    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(2.5f,12.f,0.1f),5.f));
+    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(50.f,550.f,1.f,0.7f),300.f));
     l.add(std::make_unique<C>(juce::ParameterID{"dmmMode",1},"DMM Modulation",juce::StringArray{"Chorus","Vibrato"},0));
     l.add(std::make_unique<F>(juce::ParameterID{"dmmFeedback",1},"DMM Feedback",juce::NormalisableRange<float>(0.f,0.92f,0.01f),0.0f));
     l.add(std::make_unique<C>(juce::ParameterID{"quality",1},"Quality",juce::StringArray{"Normal","High"},0));
@@ -73,6 +73,7 @@ void ChorusProcessor::prepareToPlay(double sr,int)
 {
     fs=juce::jmax(8000.0,sr);
     for(auto& channel:voices) for(auto& voice:channel) voice.reset((int)(fs*0.85)+16);
+    for(int ch=0;ch<2;++ch) {dryDelay[(size_t)ch].assign((size_t)(fs*0.7)+16,0.f);dryWrite[(size_t)ch]=0;}
 }
 void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBuffer&)
 {
@@ -130,10 +131,10 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?4.f:9.f))
                     :(model==5?(mode==0?0.f:(mode==1?3.f:6.f))
                     :(model==6?(mode==0?1.f:(mode==1?4.5f:7.5f)):0.f));
-                // Chorus-only DMM: preserve the clock-modulation excursion while
-                // removing the long nominal echo. Delay is bounded by sweep.
-                const float dmmBase=juce::jmax(2.5f,dmmDelay);
-                const float dmmSweep=juce::jmin(2.2f*depth,dmmBase-0.5f); // Depth attenuates LFO feed to the clock in both positions.
+                // Preserve the original long BBD storage time. Align the dry path
+                // with the nominal wet transit time at the output instead.
+                const float dmmBase=dmmDelay;
+                const float dmmSweep=2.2f*depth; // Depth attenuates LFO feed to the clock in both positions.
                 const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
                 const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
                 const float junoSweep=junoMode==2?0.32f:1.1f;
@@ -267,8 +268,19 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
             // Vibrato suppresses the dry signal; chorus retains dry/wet
             // mixing. A DMM's chorus/vibrato switch selects LFO character,
             // rather than necessarily selecting a 100%-wet vibrato output.
+            float alignedDry=dry;
+            if(model==1)
+            {
+                auto& ring=dryDelay[(size_t)ch];
+                const int n=(int)ring.size();
+                const int nominalSamples=juce::jlimit(1,n-2,(int)std::lround(fs*0.001*(double)dmmDelay));
+                const int read=(dryWrite[(size_t)ch]-nominalSamples+n)%n;
+                alignedDry=ring[(size_t)read];
+                ring[(size_t)dryWrite[(size_t)ch]]=dry;
+                dryWrite[(size_t)ch]=(dryWrite[(size_t)ch]+1)%n;
+            }
             const float dryAmount=1.f-mix;
-            buffer.setSample(ch,sample,gain*(dryAmount*dry+mix*wet*wetGain));
+            buffer.setSample(ch,sample,gain*(dryAmount*alignedDry+mix*wet*wetGain));
         }
     }
     for(int ch=channels;ch<buffer.getNumChannels();++ch) buffer.clear(ch,0,buffer.getNumSamples());
