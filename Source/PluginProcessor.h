@@ -33,6 +33,13 @@ private:
     struct Voice
     {
         std::vector<float> delay;
+        // Clocked BBD charge-transfer storage, independent of the host rate.
+        // One cell corresponds to one complete two-phase clock period.
+        std::vector<float> bbd;
+        int bbdWrite=0;
+        double clockPhase=0.0;
+        float heldBbd=0.0f, previousBbd=0.0f;
+        float bbdCharge=0.0f;
         int write = 0;
         double phase = 0.0;
         float dc = 0.0f, dcIn = 0.0f, tone = 0.0f, comp = 0.0f, pre = 0.0f;
