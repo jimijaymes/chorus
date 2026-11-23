@@ -1,9 +1,12 @@
 #pragma once
 #include "PluginProcessor.h"
-class ChorusEditor final : public juce::AudioProcessorEditor
+class ChorusEditor final : public juce::AudioProcessorEditor, private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     explicit ChorusEditor(ChorusProcessor&);
+    ~ChorusEditor() override;
+    void parameterChanged(const juce::String&,float) override;
+    void updateModelControls();
     void resized() override;
     void paint(juce::Graphics&) override;
 private:
