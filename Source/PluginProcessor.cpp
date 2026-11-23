@@ -48,7 +48,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
     l.add(std::make_unique<C>(juce::ParameterID{"monoStereo",1},"Mono Chorus Output",juce::StringArray{"Original Mono","Stereo (Opposite LFO)"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"mode",1},"Algorithm Mode",juce::StringArray{"Mode 1","Mode 2","Mode 3","Mode 4"},0));
     l.add(std::make_unique<C>(juce::ParameterID{"junoMode",1},"Juno Chorus",juce::StringArray{"I","II","I+II"},0));
-    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(8.f,35.f,0.1f),18.f));
+    l.add(std::make_unique<F>(juce::ParameterID{"dmmDelay",1},"DMM Delay Time",juce::NormalisableRange<float>(2.5f,12.f,0.1f),5.f));
     l.add(std::make_unique<C>(juce::ParameterID{"dmmMode",1},"DMM Modulation",juce::StringArray{"Chorus","Vibrato"},0));
     l.add(std::make_unique<F>(juce::ParameterID{"dmmFeedback",1},"DMM Feedback",juce::NormalisableRange<float>(0.f,0.92f,0.01f),0.0f));
     l.add(std::make_unique<C>(juce::ParameterID{"quality",1},"Quality",juce::StringArray{"Normal","High"},0));
@@ -130,8 +130,10 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float digitalModeDelay=model==4?(mode==0?0.0f:(mode==1?4.f:9.f))
                     :(model==5?(mode==0?0.f:(mode==1?3.f:6.f))
                     :(model==6?(mode==0?1.f:(mode==1?4.5f:7.5f)):0.f));
-                const float dmmBase=dmmDelay;
-                const float dmmSweep=2.2f*depth; // Depth attenuates LFO feed to the clock in both positions.
+                // Chorus-only DMM: preserve the clock-modulation excursion while
+                // removing the long nominal echo. Delay is bounded by sweep.
+                const float dmmBase=juce::jmax(2.5f,dmmDelay);
+                const float dmmSweep=juce::jmin(2.2f*depth,dmmBase-0.5f); // Depth attenuates LFO feed to the clock in both positions.
                 const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
                 const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
                 const float junoSweep=junoMode==2?0.32f:1.1f;
@@ -195,12 +197,12 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     const double nominalClock=(double)cells/(0.001*(double)nominalMs);
                     // Delay is inversely proportional to clock frequency.
                     // Clock oscillator is modulated, not a read pointer.
-                    const double clockHz=juce::jlimit(3000.0,240000.0,
+                    const double clockHz=juce::jlimit(3000.0,2400000.0,
                         nominalClock*(double)nominalMs/(double)juce::jmax(0.5f,dMs));
                     s.clockPhase+=clockHz/fs;
                     // At extreme host rates, process every elapsed clock tick
                     // to avoid losing bucket transfers.
-                    const int ticks=(int)s.clockPhase;
+                    const int ticks=juce::jmin(2048,(int)s.clockPhase);
                     s.clockPhase-=ticks;
                     for(int tick=0;tick<ticks;++tick)
                     {
