@@ -100,7 +100,7 @@ void ChorusEditor::updateModelControls(){
     labels[5]->setText("PREAMP GAIN",juce::dontSendNotification);
     labels[1]->setText(m==1?"MOD DEPTH":"DEPTH",juce::dontSendNotification);
     combos[2]->setVisible(dimension||digital);
-    combos[3]->setVisible(m<=1);
+    combos[3]->setVisible(m<=1||flanger);
     combos[4]->setVisible(m==1);
     combos[5]->setVisible(m==7);
     combos[6]->setVisible(m==1);
