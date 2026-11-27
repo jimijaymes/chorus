@@ -95,6 +95,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const int quality=(int)*parameters.getRawParameterValue("quality");
     const int mode=juce::jlimit(0,3,(int)*parameters.getRawParameterValue("mode"));
     const bool stereoMonoChorus=parameters.getRawParameterValue("monoStereo")->load()>.5f;
+    const bool flanger=model>=8;
     const int voicesUsed=(model==7||flanger)?1:(model==3?3:(model>=5?6:(model==2?2:(model==4?2:1))));
     const int junoMode=juce::jlimit(0,2,(int)parameters.getRawParameterValue("junoMode")->load());
     const float dmmDelay=parameters.getRawParameterValue("dmmDelay")->load();
@@ -104,7 +105,6 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const float dmmFeedback=parameters.getRawParameterValue("dmmFeedback")->load();
     const float flangeManual=parameters.getRawParameterValue("flangeManual")->load();
     const float flangeFeedback=parameters.getRawParameterValue("flangeFeedback")->load();
-    const bool flanger=model>=8;
     const float baseMs[]={512000.f/131000.f,260.0f,8.0f,11.0f,18.0f,21.0f,19.0f,7.5f};
     const float sweepMs[]={0.85f,2.2f,0.65f,3.5f,3.0f,4.0f,3.2f,1.1f};
     const float rates[]={0.55f,1.0f,0.45f,0.72f,0.48f,0.31f,0.34f,1.0f};
@@ -145,7 +145,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 // oscillator character, rather than a moving read pointer.
                 const float dmmBase=dmmShort?dmmShortDelay:dmmDelay;
                 const float dmmSweep=2.2f*depth; // Provisional maximum excursion; not measured from hardware. // LFO controls clock frequency; short mode uses a reduced-stage BBD.
-                const float spx990Lfo=model==6?(0.82f*sine+0.18f*std::sin(4.0*pi*phase)):lfo;
+                const float spx990Lfo=model==6?(0.82f*sine+0.18f*static_cast<float>(std::sin(4.0*pi*phase))):lfo;
                 const float junoRate=junoMode==0?0.513f:(junoMode==1?0.863f:9.75f);
                 const float junoSweep=junoMode==2?0.2f:1.845f; // measured half-range
                 // BF-2 service notes: 1-13 ms. The optional extended mode doubles the entire range.
