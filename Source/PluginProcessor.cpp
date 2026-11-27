@@ -180,12 +180,12 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                         const float preGain=1.2f+3.2f*drive;
                         input=std::tanh(preGain*emphasized+.075f)-std::tanh(.075f);
                         input=highpass(input,s.preDcIn,s.preDc,18.f,fs);
-                    } else input=std::tanh(emphasized*1.08f);
+                    } else input=model==0?emphasized:std::tanh(emphasized*1.08f);
                     // Envelope-following compander approximation: compress
                     // before BBD; expansion after delay uses same envelope.
                     const float envelope=onePole(std::abs(input),s.env,model==1?38.f:52.f,fs);
                     const float compGain=1.f/std::sqrt(1.f+4.f*envelope);
-                    input*=compGain;
+                    if(model!=0) input*=compGain;
                     // Clock-limited anti-aliasing before BBD.
                     input=onePole(input,s.antiAlias,model==1?5300.f:(model==7?7000.f:8500.f),fs);
                 }
@@ -206,7 +206,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     const float d2=(float)((s.rng>>8)&65535u)/65535.f;
                     input=std::round((input+(d1-d2)/steps)*steps)/steps;
                 }
-                else input=onePole(input,s.antiAlias,9000.f,fs);
+                else if(!flanger) input=onePole(input,s.antiAlias,9000.f,fs);
                 // DMM feedback is injected at the BBD input, through its own
                 // filtered, bounded analogue loop. Other models remain feed-forward.
                 if(model==1) input=std::tanh(input+dmmFeedback*s.feedbackSample);
@@ -218,7 +218,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     input=highpass(input,s.flHpIn,s.flHpOut,20.f,fs);
                     // Resonance/Color acts in the feedback loop, before the delay.
                     // Prevent runaway with bounded feedback while preserving polarity.
-                    input=std::tanh(input+flangeFeedback*s.feedbackSample);
+                    input=model==8?juce::jlimit(-1.5f,1.5f,input+juce::jlimit(0.f,1.f,(flangeFeedback+0.9f)/1.8f)*0.99f*s.feedbackSample):std::tanh(input+flangeFeedback*s.feedbackSample);
                     if(model==9)
                     {
                         // SAD1024-era Mistress treble pre-emphasis.
@@ -241,7 +241,9 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     // CE-2 reference simulation: about 131 kHz centre and
                     // 108-164 kHz at full depth, yielding ~3.1-4.8 ms.
                     // Other BBD models retain their own clock mapping.
-                    const double clockHz=model==0
+                    const double bfControl=(1.0-depth)*flangeManual+depth*(0.5+0.5*triangle);
+                    const double bfClock=2.0*juce::jlimit(40000.0,512000.0,40000.0*std::pow(12.8,bfControl))/(mode==1?2.0:1.0);
+                    const double clockHz=model==8?bfClock*.5:model==0
                         ? (131000.0+28000.0*(double)depth*(double)triangle)
                         : juce::jlimit(flanger?2500.0:3000.0,flanger?650000.0:240000.0,
                             nominalClock*(double)nominalMs/(double)juce::jmax(0.5f,dMs));
@@ -258,14 +260,17 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                         // a small amount of signal-dependent transfer error.
                         const float previous=s.bbd[(size_t)s.bbdWrite];
                         const float efficiency=flanger?0.9992f:(model==1?(dmmShort?0.9988f:0.9997f):(model==7?0.9993f:0.9995f));
-                        const float transferred=efficiency*input+(1.f-efficiency)*previous;
+                        const float fraction=juce::jlimit(0.f,1.f,1.f-(float)((ticks-1-tick+s.clockPhase)*fs/clockHz));
+                        const float sampled=s.bbdCharge+(input-s.bbdCharge)*fraction;
+                        const float transferred=efficiency*sampled+(1.f-efficiency)*previous;
                         s.bbd[(size_t)s.bbdWrite]=juce::jlimit(-1.5f,1.5f,transferred);
                         s.bbdWrite=(s.bbdWrite+1)%cells;
                         s.previousBbd=s.heldBbd;
                         s.heldBbd=stored;
                     }
                     // Output reconstruction operates on held charge packets.
-                    delayed=s.heldBbd;
+                    s.bbdCharge=input;
+                    delayed=s.previousBbd+(s.heldBbd-s.previousBbd)*(float)s.clockPhase;
                 }
                 else if(model==4)
                 {
@@ -290,7 +295,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 if(model==1) s.feedbackSample=onePole(delayed,s.feedbackLow,3600.f,fs);
                 if(flanger)
                 {
-                    const float fbCutoff=model==8?4400.f:(model==9?5000.f:5200.f);
+                    const float fbCutoff=model==8?8500.f:(model==9?5000.f:5200.f);
                     s.feedbackSample=onePole(delayed,s.feedbackLow,fbCutoff,fs);
                 }
                 if(model<=2||model==7)
@@ -299,7 +304,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     // Matched envelope expansion and de-emphasis; the
                     // nonlinear BBD output is intentionally subtle.
                     const float expansion=std::sqrt(1.f+4.f*s.env);
-                    delayed=std::tanh(delayed*expansion*1.08f);
+                    if(model!=0) delayed=std::tanh(delayed*expansion*1.08f);
                     delayed=onePole(delayed,s.deEmphasis,model==1?4300.f:6200.f,fs);
                     delayed=highpass(delayed,s.dcIn,s.dc,model==1?28.f:55.f,fs);
                 }
@@ -340,7 +345,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const double yamahaRate=model==5
                     ? juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.1,20.0)
                     : juce::jmap((double)juce::jlimit(0.05f,6.f,rate),0.05,6.0,0.05,40.0);
-                const double flangerRate=model==8?juce::jmap((double)rate,0.05,6.0,0.0625,10.0)
+                const double flangerRate=model==8?0.0625*std::pow(160.0,juce::jlimit(0.0,1.0,((double)rate-0.05)/5.95))
                     :(model==9?juce::jmap((double)rate,0.05,6.0,0.05,12.0)
                     :juce::jmap((double)rate,0.05,6.0,0.1,10.0));
                 const double step=(flanger?flangerRate:(model==0?ce2Rate:(model==1?dmmLfoHz:(model==2?dimensionRate:(model==7?junoRate:(model==5||model==6?yamahaRate:(double)(effectiveRate*rates[model]*modeRate)))))))/fs;
@@ -349,7 +354,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 s.phase-=std::floor(s.phase);
             }
             // CE-1/CE-2 retain their dry path; Dimension-like and symphonic architectures use decorrelated wet voices.
-            const float wetGain=flanger?0.75f:(model>=5&&model<=6)?0.85f:(model==2?0.72f:1.0f);
+            const float wetGain=model==8?1.f:flanger?0.75f:(model>=5&&model<=6)?0.85f:(model==2?0.72f:1.0f);
             // Vibrato suppresses the dry signal; chorus retains dry/wet
             // mixing. A DMM's chorus/vibrato switch selects LFO character,
             // rather than necessarily selecting a 100%-wet vibrato output.
