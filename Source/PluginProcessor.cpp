@@ -63,6 +63,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChorusProcessor::createLayou
     l.add(std::make_unique<F>(juce::ParameterID{"flangeManual",1},"Flanger Manual / Tune",juce::NormalisableRange<float>(0.f,1.f),0.5f));
     l.add(std::make_unique<F>(juce::ParameterID{"flangeFeedback",1},"Flanger Resonance / Color",juce::NormalisableRange<float>(-0.9f,0.9f),0.25f));
     l.add(std::make_unique<F>(juce::ParameterID{"level",1},"Level",juce::NormalisableRange<float>(-18.0f,18.0f),0.0f));
+    l.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"ceDepthMod",1},"CE-2 Depth Mod",false));
+    l.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"bfDepthMod",1},"BF-2 Depth Mod",false));
+    l.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"polySweepFilter",1},"Polychorus Sweep Filter",false));
     return l;
 }
 ChorusProcessor::ChorusProcessor()
@@ -96,6 +99,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
     const int mode=juce::jlimit(0,3,(int)*parameters.getRawParameterValue("mode"));
     const bool stereoMonoChorus=parameters.getRawParameterValue("monoStereo")->load()>.5f;
     const bool flanger=model>=8;
+    const bool ceMod=*parameters.getRawParameterValue("ceDepthMod")>.5f, bfMod=*parameters.getRawParameterValue("bfDepthMod")>.5f, polyFilter=*parameters.getRawParameterValue("polySweepFilter")>.5f;
     const int voicesUsed=(model==7||flanger)?1:(model==3?3:(model>=5?6:(model==2?2:(model==4?2:1))));
     const int junoMode=juce::jlimit(0,2,(int)parameters.getRawParameterValue("junoMode")->load());
     const float dmmDelay=parameters.getRawParameterValue("dmmDelay")->load();
@@ -125,7 +129,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     ? ((stereoMonoChorus && ch==1)?0.5:0.0)
                     : (model==7?(junoMode==2?0.0:(ch==1?0.5:0.0)):((ch==1)?width*(model==2?0.5:0.25):0.0));
                 // Separate phase accumulators per voice/channel allow independent architecture and stable stereo offsets.
-                const double phase=s.phase+phaseOffset+stereoOffset;
+                const double phase=s.phase+phaseOffset+(model==3?0.0:stereoOffset);
                 const float sine=(float)std::sin(2.0*pi*phase);
                 const float triangle=(float)(2.0/pi*std::asin(std::sin(2.0*pi*phase)));
                 // DMM switch changes LFO timing, not the oscillator waveform.
@@ -158,10 +162,14 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const float flangeDepth=model==8?juce::jmin(flangerBase-0.5f,5.8f)*depth
                     :(model==9?juce::jmin(flangerBase-0.85f,3.45f)*depth
                     :juce::jmin(flangerBase-0.5f,mode==2?6.f:4.f)*depth);
-                const float flangerDelay=juce::jmax(model==9?0.85f:0.5f,flangerBase+(staticFlange?0.f:flangeDepth*triangle));
+                const float mistressDelay=mode==1?0.9f+6.9f*flangeManual:0.9f+6.9f*flangeManual*(triangle+1.f)*.5f;
+                const float polyBase=mode<=1?1.f+12.f*flangeManual:12.f+48.f*flangeManual;
+                const float polyLfo=polyFilter?sine:triangle;
+                const float polyDelay=juce::jmax(0.6f,polyBase+(staticFlange?0.f:depth*juce::jmin(polyBase-.6f,mode==2?12.f:6.f)*polyLfo));
+                const float flangerDelay=model==9?mistressDelay:(model==10?polyDelay:juce::jmax(0.5f,flangerBase+(staticFlange?0.f:flangeDepth*triangle)));
                 const float dMs=flanger?flangerDelay:(model==1?(dmmShort?dmmBase/(1.f+juce::jlimit(-0.32f,0.32f,(dmmSweep/juce::jmax(6.f,dmmBase))*lfo)):dmmBase+dmmSweep*lfo)
                     :(model==7?(junoMode==2?3.5f:3.505f)+junoSweep*lfo
-                    :baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter)));
+                    :model==3?(9.f+3.f*v+depth*3.5f*(v==0?triangle:(v==1?.65f*sine+.35f*triangle:.35f*sine+.65f*triangle))):baseMs[model]+digitalModeDelay+effectiveDepth*sweepMs[model]*(spx990Lfo+jitter)));
                 // MidiVerb II: independent lower-rate delay memory; its precise clock
                 // remains unverified, so 23.4 kHz is an explicit approximation.
                 constexpr double midiVerbProcessingHz=23437.5; // DASP-16 internal tick rate, documented by independent emulation research.
@@ -169,7 +177,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 float input=dry;
                 // Independent analogue front-ends: CE-2 BBD, DMM preamp/BBD,
                 // and Dimension BBD. These are informed approximations, not SPICE.
-                if(model<=2||model==7)
+                if(model<=3||model==7)
                 {
                     const float preHz=model==0?1050.f:(model==1?760.f:(model==7?1400.f:1200.f));
                     const float preLow=onePole(input,s.pre,preHz,fs);
@@ -227,12 +235,13 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     }
                 }
                 float delayed=0.f;
-                if(model<=2||model==7||flanger)
+                if(model<=3||model==7||flanger)
                 {
                     // Clocked BBD transfer: full DMM 4096 effective positions,
                     // short DMM 1024 effective positions (modified architecture).
                     // Both use a modulated clock, not an interpolated read tap.
-                    const int cells=model==8?512:(model==9?512:(model==10?1024:(model==1?(dmmShort?1024:4096):(model==7?128:512)))); // BF-2 512, SAD1024 interleaved 512; Polychorus provisional 1024
+                    const int cells=model==8?512:(model==9?512:(model==10?(mode<=1?128:2048):(model==1?(dmmShort?1024:4096):(model==7?128:512)))); // BF-2 512, SAD1024 interleaved 512; Polychorus provisional 1024
+                    s.bbdWrite%=cells;
                     const float nominalMs=flanger?flangerBase:(model==1?dmmBase:baseMs[model]);
                     
                     const double nominalClock=(double)cells/(0.001*(double)nominalMs);
@@ -241,10 +250,10 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     // CE-2 reference simulation: about 131 kHz centre and
                     // 108-164 kHz at full depth, yielding ~3.1-4.8 ms.
                     // Other BBD models retain their own clock mapping.
-                    const double bfControl=(1.0-depth)*flangeManual+depth*(0.5+0.5*triangle);
-                    const double bfClock=2.0*juce::jlimit(40000.0,512000.0,40000.0*std::pow(12.8,bfControl))/(mode==1?2.0:1.0);
+                    const double bfControl=(1.0-depth)*flangeManual+depth*(0.5+0.5*triangle)+(bfMod?0.5*depth*triangle:0.0);
+                    const double bfClock=2.0*juce::jlimit(bfMod?20000.0:40000.0,bfMod?650000.0:512000.0,40000.0*std::pow(12.8,bfControl))/(mode==1?2.0:1.0);
                     const double clockHz=model==8?bfClock*.5:model==0
-                        ? (131000.0+28000.0*(double)depth*(double)triangle)
+                        ? (131000.0+(ceMod?56000.0:28000.0)*(double)depth*(double)triangle)
                         : juce::jlimit(flanger?2500.0:3000.0,flanger?650000.0:240000.0,
                             nominalClock*(double)nominalMs/(double)juce::jmax(0.5f,dMs));
                     s.clockPhase+=clockHz/fs;
@@ -298,7 +307,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     const float fbCutoff=model==8?8500.f:(model==9?5000.f:5200.f);
                     s.feedbackSample=onePole(delayed,s.feedbackLow,fbCutoff,fs);
                 }
-                if(model<=2||model==7)
+                if(model<=3||model==7)
                 {
                     delayed=onePole(delayed,s.tone,bandwidth[model],fs);
                     // Matched envelope expansion and de-emphasis; the
@@ -324,12 +333,12 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                         delayed=onePole(delayed,s.flPost1,postCut,fs);
                         delayed=onePole(delayed,s.flPost2,postCut,fs);
                     }
-                    if(model==9) delayed=onePole(delayed,s.deEmphasis,9000.f,fs);
+                    if(model==9) {const float low=onePole(delayed,s.deEmphasis,1500.f,fs);delayed=low+(delayed-low)/1.7f;}
                 }
                 // Different digital architectures: Midiverb uses two complementary
                 // moving taps; SPX90 and SPX990 use multiple decorrelated
                 // taps with different weighting and modulation distributions.
-                const float weight=flanger?1.f:(model==4?(v==0?.58f:.42f)
+                const float weight=model==3?(v==1?.34f:(v==0?(ch==0?.56f:.10f):(ch==1?.56f:.10f))):flanger?1.f:(model==4?(v==0?.58f:.42f)
                     :(model==5?(v%2==0?1.12f:.88f)/6.f
                     :(model==6?(v%3==0?1.18f:.91f)/6.f:1.f/(float)voicesUsed)));
                 wet+=delayed*weight;
@@ -348,13 +357,13 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const double flangerRate=model==8?0.0625*std::pow(160.0,juce::jlimit(0.0,1.0,((double)rate-0.05)/5.95))
                     :(model==9?juce::jmap((double)rate,0.05,6.0,0.05,12.0)
                     :juce::jmap((double)rate,0.05,6.0,0.1,10.0));
-                const double step=(flanger?flangerRate:(model==0?ce2Rate:(model==1?dmmLfoHz:(model==2?dimensionRate:(model==7?junoRate:(model==5||model==6?yamahaRate:(double)(effectiveRate*rates[model]*modeRate)))))))/fs;
+                const double step=(model==3?rate*(v==0?.72:v==1?.91:1.13):flanger?flangerRate:(model==0?ce2Rate:(model==1?dmmLfoHz:(model==2?dimensionRate:(model==7?junoRate:(model==5||model==6?yamahaRate:(double)(effectiveRate*rates[model]*modeRate)))))))/fs;
                 if(quality!=0) {s.phase+=step*0.5; s.phase-=std::floor(s.phase); s.phase+=step*0.5;}
                 else s.phase+=step;
                 s.phase-=std::floor(s.phase);
             }
             // CE-1/CE-2 retain their dry path; Dimension-like and symphonic architectures use decorrelated wet voices.
-            const float wetGain=model==8?1.f:flanger?0.75f:(model>=5&&model<=6)?0.85f:(model==2?0.72f:1.0f);
+            const float wetGain=model==8||model==9?1.f:flanger?0.75f:(model>=5&&model<=6)?0.85f:(model==2?0.72f:1.0f);
             // Vibrato suppresses the dry signal; chorus retains dry/wet
             // mixing. A DMM's chorus/vibrato switch selects LFO character,
             // rather than necessarily selecting a 100%-wet vibrato output.
