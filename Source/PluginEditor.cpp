@@ -121,18 +121,18 @@ void ChorusEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colours::lightgrey); g.setFont(14.0f);
     g.drawText("Chorus / Flanger: CE-2, DMM, Juno, BF-2, Mistress, Polychorus + digital models",25,66,getWidth()-50,24,juce::Justification::centred);
     g.drawText("MODEL",55,110,130,22,juce::Justification::centred);
-    g.drawText("QUALITY",540,110,180,22,juce::Justification::centred);
+    g.drawText("QUALITY",540,85,180,22,juce::Justification::centred);
     g.setColour(juce::Colour(0xff75818c));
     g.drawText("Original DSP approximations; not factory-preset or measured hardware clones",20,494,getWidth()-40,22,juce::Justification::centred);
 }
 void ChorusEditor::resized()
 {
-    combos[0]->setBounds(195,110,325,28); combos[1]->setBounds(585,140,175,28);
+    combos[0]->setBounds(195,110,325,28); combos[1]->setBounds(585,110,235,28);
     combos[2]->setBounds(195,150,325,28);
     combos[3]->setBounds(195,150,325,28);
-    combos[4]->setBounds(540,175,270,28);
+    combos[4]->setBounds(540,150,310,28);
     combos[5]->setBounds(195,150,325,28);
-    combos[6]->setBounds(540,210,270,28);
+    combos[6]->setBounds(540,184,310,28);
     labels[7]->setBounds(55,360,130,24);
     sliders[7]->setBounds(55,385,130,105);
     labels[8]->setBounds(205,360,130,24);
@@ -146,7 +146,7 @@ void ChorusEditor::resized()
     for(int i=0;i<7;++i)
     {
         const int x=30+i*110;
-        labels[(size_t)i]->setBounds(x,205,100,24);
-        sliders[(size_t)i]->setBounds(x,232,100,105);
+        labels[(size_t)i]->setBounds(x,220,100,24);
+        sliders[(size_t)i]->setBounds(x,247,100,105);
     }
 }
