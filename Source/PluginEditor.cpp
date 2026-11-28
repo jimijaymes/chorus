@@ -84,6 +84,10 @@ ChorusEditor::ChorusEditor(ChorusProcessor& p) : AudioProcessorEditor(&p), proce
         addAndMakeVisible(*label);
         labels.push_back(std::move(label));
     }
+    addAndMakeVisible(ceMod);addAndMakeVisible(bfMod);addAndMakeVisible(polyFilter);
+    ceAttach=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.parameters,"ceDepthMod",ceMod);
+    bfAttach=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.parameters,"bfDepthMod",bfMod);
+    polyAttach=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.parameters,"polySweepFilter",polyFilter);
     setSize(900, 520);
     p.parameters.addParameterListener("model",this); p.parameters.addParameterListener("dmmEngine",this); updateModelControls();
 }
@@ -111,6 +115,13 @@ void ChorusEditor::updateModelControls(){
     const bool shortEngine=processor.parameters.getRawParameterValue("dmmEngine")->load()<0.5f;
     sliders[8]->setVisible(m==1&&!shortEngine);labels[8]->setVisible(m==1&&!shortEngine);
     sliders[9]->setVisible(m==1&&shortEngine);labels[9]->setVisible(m==1&&shortEngine);
+    ceMod.setVisible(m==0);bfMod.setVisible(m==8);polyFilter.setVisible(m==10);
+    combos[2]->changeItemText(1,m==9?"Flange":m==10?"Filter Matrix":m==8?"Stock delay":"Mode 1");
+    combos[2]->changeItemText(2,m==9?"Filter Matrix":m==10?"Flange":m==8?"Extended delay":"Mode 2");
+    combos[2]->changeItemText(3,m==10?"Chorus":m==9?"Flange (legacy)":m==8?"Stock delay (legacy)":"Mode 3");
+    combos[2]->changeItemText(4,m==10?"Double Track":m==9?"Flange (legacy)":m==8?"Stock delay (legacy)":"Mode 4");
+    sliders[1]->setVisible(m!=9&&!dimension&&!digital&&m!=7);labels[1]->setVisible(sliders[1]->isVisible());
+    labels[10]->setText(m==9?"RANGE":m==10?"TUNE / DELAY":"MANUAL / TUNE",juce::dontSendNotification);
     resized();
 }
 void ChorusEditor::paint(juce::Graphics& g)
@@ -129,7 +140,9 @@ void ChorusEditor::resized()
 {
     combos[0]->setBounds(195,110,325,28); combos[1]->setBounds(585,110,235,28);
     combos[2]->setBounds(195,150,325,28);
-    combos[3]->setBounds(195,150,325,28);
+    combos[3]->setBounds(540,150,310,28);
+    if(processor.parameters.getRawParameterValue("model")->load()<=1) combos[3]->setBounds(195,150,325,28);
+    ceMod.setBounds(195,184,160,28);bfMod.setBounds(195,184,160,28);polyFilter.setBounds(195,184,160,28);
     combos[4]->setBounds(540,150,310,28);
     combos[5]->setBounds(195,150,325,28);
     combos[6]->setBounds(540,184,310,28);
