@@ -122,6 +122,10 @@ void ChorusEditor::updateModelControls(){
     combos[2]->changeItemText(4,m==10?"Double Track":m==9?"Flange (legacy)":m==8?"Stock delay (legacy)":"Mode 4");
     sliders[1]->setVisible(m!=9&&!dimension&&!digital&&m!=7);labels[1]->setVisible(sliders[1]->isVisible());
     labels[10]->setText(m==9?"RANGE":m==10?"TUNE / DELAY":"MANUAL / TUNE",juce::dontSendNotification);
+    combos[3]->changeItemText(1,m==10?"Mono":"Original Mono");
+    combos[3]->changeItemText(2,m==10?"Stereo":"Stereo (Opposite LFO)");
+    labels[11]->setText(m==9?"COLOR":m==10?"FEEDBACK":"RESONANCE",juce::dontSendNotification);
+    sliders[11]->textFromValueFunction=[](double v){return juce::String((v+.9)/1.8*100.,0)+"%";};
     resized();
 }
 void ChorusEditor::paint(juce::Graphics& g)

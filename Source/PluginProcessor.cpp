@@ -125,11 +125,11 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                 const double phaseOffset=(model==3||model>=5||model==2)?(double)v/(double)voicesUsed:(model==4&&v==1?0.5:0.0);
                 // CE-1/CE-2: original mono uses the same LFO on both channels;
                 // optional stereo puts the right channel 180 degrees out of phase.
-                const double stereoOffset=(model<=1||flanger)
+                const double stereoOffset=(model<=1||(flanger&&model!=10))
                     ? ((stereoMonoChorus && ch==1)?0.5:0.0)
                     : (model==7?(junoMode==2?0.0:(ch==1?0.5:0.0)):((ch==1)?width*(model==2?0.5:0.25):0.0));
                 // Separate phase accumulators per voice/channel allow independent architecture and stable stereo offsets.
-                const double phase=s.phase+phaseOffset+(model==3?0.0:stereoOffset);
+                const double phase=s.phase+phaseOffset+((model==3||model==10)?0.0:stereoOffset);
                 const float sine=(float)std::sin(2.0*pi*phase);
                 const float triangle=(float)(2.0/pi*std::asin(std::sin(2.0*pi*phase)));
                 // DMM switch changes LFO timing, not the oscillator waveform.
@@ -226,7 +226,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     input=highpass(input,s.flHpIn,s.flHpOut,20.f,fs);
                     // Resonance/Color acts in the feedback loop, before the delay.
                     // Prevent runaway with bounded feedback while preserving polarity.
-                    input=model==8?juce::jlimit(-1.5f,1.5f,input+juce::jlimit(0.f,1.f,(flangeFeedback+0.9f)/1.8f)*0.99f*s.feedbackSample):std::tanh(input+flangeFeedback*s.feedbackSample);
+                    input=model==8?juce::jlimit(-1.5f,1.5f,input+juce::jlimit(0.f,1.f,(flangeFeedback+0.9f)/1.8f)*0.99f*s.feedbackSample):std::tanh(input+juce::jlimit(0.f,1.f,(flangeFeedback+0.9f)/1.8f)*(model==9?0.95f:0.99f)*s.feedbackSample);
                     if(model==9)
                     {
                         // SAD1024-era Mistress treble pre-emphasis.
@@ -250,8 +250,8 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
                     // CE-2 reference simulation: about 131 kHz centre and
                     // 108-164 kHz at full depth, yielding ~3.1-4.8 ms.
                     // Other BBD models retain their own clock mapping.
-                    const double bfControl=(1.0-depth)*flangeManual+depth*(0.5+0.5*triangle)+(bfMod?0.5*depth*triangle:0.0);
-                    const double bfClock=2.0*juce::jlimit(bfMod?20000.0:40000.0,bfMod?650000.0:512000.0,40000.0*std::pow(12.8,bfControl))/(mode==1?2.0:1.0);
+                    const double bfControl=flangeManual+(bfMod?1.0:0.5)*depth*triangle;
+                    const double bfClock=2.0*juce::jlimit(40000.0,512000.0,40000.0*std::pow(12.8,bfControl))/(mode==1?2.0:1.0);
                     const double clockHz=model==8?bfClock*.5:model==0
                         ? (131000.0+(ceMod?56000.0:28000.0)*(double)depth*(double)triangle)
                         : juce::jlimit(flanger?2500.0:3000.0,flanger?650000.0:240000.0,
@@ -369,7 +369,7 @@ void ChorusProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBu
             // rather than necessarily selecting a 100%-wet vibrato output.
             // Always blend with the un-delayed input; no dry-path latency compensation.
             const float dryAmount=1.f-mix;
-            buffer.setSample(ch,sample,gain*(dryAmount*dry+mix*wet*wetGain));
+            buffer.setSample(ch,sample,gain*(dryAmount*dry+mix*wet*wetGain*(model==10&&stereoMonoChorus&&ch==1?-1.f:1.f)));
         }
     }
     for(int ch=channels;ch<buffer.getNumChannels();++ch) buffer.clear(ch,0,buffer.getNumSamples());
